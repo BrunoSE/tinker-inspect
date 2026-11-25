@@ -799,6 +799,7 @@ pre.codebox {
     const tok = d.tokens;
     const hasTimings = Object.keys(run.timings).length > 0;
     const hasGroups = Object.keys(run.groups_by_step).length > 0;
+    const hasTools = Boolean(d.tools);
 
     const klFinding = d.findings.find(f => f.check_id === "kl0");
     renderTopbar(
@@ -811,6 +812,7 @@ pre.codebox {
       [
         ["#overview", "Overview"],
         ["#tokens", "Tokens & Cost"],
+        ...(hasTools ? [["#tools", "Tools & Cache"]] : []),
         ["#curves", "Curves"],
         ...(hasTimings ? [["#gantt", "Gantt"]] : []),
         ...(hasGroups ? [["#groups", "Groups"]] : []),
@@ -875,6 +877,18 @@ pre.codebox {
         </div>
         <div class="card" id="tokensCard"></div>
       </section>
+
+      ${hasTools ? `<section class="section" id="tools">
+        <div class="section-head">
+          <h2>Multi-Turn Tool Execution &amp; Prefix Cache</h2>
+          <span class="section-sub">Tool call usage, errors, limit cutoffs, and per-step prefix-cache efficiency</span>
+        </div>
+        <div class="kpi-grid" id="toolsKpi" style="margin-bottom:14px"></div>
+        <div class="card chart-card" id="toolsChartCard" style="display:none">
+          <div class="chart-header"><span class="chart-title">Per-Step Prefix Cache Hit Rate &amp; Tool Rates</span><div class="legend" id="toolsLegend"></div></div>
+          <div class="svg-wrap" id="cTools"></div>
+        </div>
+      </section>` : ""}
 
       <section class="section" id="curves">
         <div class="section-head">
@@ -961,6 +975,38 @@ pre.codebox {
         </tbody>
       </table>
     `;
+
+    // Multi-turn tool & prefix-cache card
+    if (hasTools) {
+      const td = d.tools;
+      const kpis = [];
+      if (td.mean_turns_per_episode != null) kpis.push(["Turns / Episode", td.mean_turns_per_episode.toFixed(2), "Mean trajectory length"]);
+      if (td.used_tool_rate != null) kpis.push(["Used Tool Rate", fmtPct(td.used_tool_rate, 1), "Episodes calling a tool"]);
+      if (td.mean_tool_calls != null) kpis.push(["Tool Calls / Ep", td.mean_tool_calls.toFixed(2), "Mean tool invocations"]);
+      if (td.mean_tool_errors != null) kpis.push(["Tool Errors / Ep", td.mean_tool_errors.toFixed(2), "Failed or malformed tool calls"]);
+      if (td.hit_max_turns_rate != null) kpis.push(["Max-Turns Cutoffs", fmtPct(td.hit_max_turns_rate, 1), "Episodes hitting turn limit"]);
+      if (td.hit_max_tokens_rate != null) kpis.push(["Max-Tokens Cutoffs", fmtPct(td.hit_max_tokens_rate, 1), "Turns hitting token cap"]);
+      document.getElementById("toolsKpi").innerHTML = kpis.map(([lbl, val, sub]) => `
+        <div class="card">
+          <div class="kpi-label">${esc(lbl)}</div>
+          <div class="kpi-val">${esc(val)}</div>
+          <div class="kpi-sub">${esc(sub)}</div>
+        </div>
+      `).join("");
+
+      const rows = td.per_step_cache_hit || [];
+      const tSeries = [
+        { label: "prefix_cache_hit", color: "#0284c7", points: rows.filter(r => r.cache_hit_frac != null).map(r => ({ x: r.step, y: r.cache_hit_frac })) },
+        { label: "used_tool", color: "#059669", points: rows.filter(r => r.used_tool != null).map(r => ({ x: r.step, y: r.used_tool })) },
+        { label: "tool_errors", color: "#e11d48", dashed: true, points: rows.filter(r => r.tool_errors != null).map(r => ({ x: r.step, y: r.tool_errors })) },
+        { label: "hit_max_turns", color: "#d97706", dashed: true, points: rows.filter(r => r.hit_max_turns != null).map(r => ({ x: r.step, y: r.hit_max_turns })) },
+      ].filter(s => s.points.length > 0);
+      if (tSeries.length) {
+        document.getElementById("toolsChartCard").style.display = "block";
+        document.getElementById("toolsLegend").innerHTML = tSeries.map(s => `<span class="legend-item"><span class="legend-swatch" style="background:${s.color}"></span>${esc(s.label)}</span>`).join("");
+        mountLineChart(document.getElementById("cTools"), { series: tSeries, checkpoints: run.checkpoints, smooth: 0, yFmt: v => v.toFixed(2) });
+      }
+    }
 
     // Curves
     function paintCurves(smooth) {

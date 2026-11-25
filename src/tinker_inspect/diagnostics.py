@@ -17,6 +17,7 @@ from tinker_inspect.schema import (
     RunDiagnostics,
     TokenCostRates,
     TokenSummary,
+    ToolDiagnostics,
 )
 
 _PRIMARY_METRIC_PRIORITY = ("success", "outcome", "correct", "reward")
@@ -692,6 +693,14 @@ def analyze_run(run: RunData, rates: TokenCostRates | None = None) -> RunDiagnos
             )
         )
 
+    # 7. Multi-turn tool-use & prefix-cache diagnostics
+    tool_diag, tool_finding = _compute_tool_diagnostics(
+        run,
+        trunc_frac=trunc_frac if all_turns > 0 else None,
+    )
+    if tool_finding is not None:
+        findings.append(tool_finding)
+
     # Collect available scalar metrics & tags
     skip_metrics = {
         "ac_tokens_per_turn",
@@ -735,7 +744,154 @@ def analyze_run(run: RunData, rates: TokenCostRates | None = None) -> RunDiagnos
         per_step_drop_stats=per_step_drop_stats,
         available_metrics=avail_metrics,
         available_tags=avail_tags,
+        tools=tool_diag,
     )
+
+
+def _first_present(d: dict[str, float], keys: tuple[str, ...]) -> float | None:
+    for k in keys:
+        if k in d:
+            return d[k]
+    return None
+
+
+def _compute_tool_diagnostics(
+    run: RunData,
+    *,
+    trunc_frac: float | None,
+) -> tuple[ToolDiagnostics | None, DiagnosticFinding | None]:
+    """Compute multi-turn tool-use, limit-hit, and per-step prefix-cache diagnostics."""
+    used_keys = ("used_python", "used_tool", "tool_used")
+    calls_keys = ("tool_calls_count", "tool_calls", "num_tool_calls")
+    err_keys = ("tool_errors", "tool_error_count", "invalid_tool_calls", "tool_call_errors")
+    max_turns_keys = ("hit_max_turns", "max_turns_reached")
+
+    # Prefer pre-filter trajectory_metrics from rollout summaries when available,
+    # falling back to step env_metrics.
+    all_trajs = [
+        tr for groups in run.groups_by_step.values() for g in groups for tr in g.trajectories
+    ]
+
+    def _collect(keys: tuple[str, ...]) -> list[float]:
+        if all_trajs:
+            vals = [
+                v
+                for tr in all_trajs
+                if (v := _first_present(tr.trajectory_metrics, keys)) is not None
+            ]
+            if vals:
+                return vals
+        return [v for s in run.steps if (v := _first_present(s.env_metrics, keys)) is not None]
+
+    used_vals = _collect(used_keys)
+    calls_vals = _collect(calls_keys)
+    err_vals = _collect(err_keys)
+    max_turns_vals = _collect(max_turns_keys)
+
+    turns_vals = (
+        [float(tr.num_turns) for tr in all_trajs]
+        if all_trajs
+        else [s.turns_per_episode for s in run.steps if s.turns_per_episode is not None]
+    )
+    mean_turns = _mean(turns_vals) if turns_vals else None
+
+    if not used_vals and calls_vals:
+        used_vals = [1.0 if v > 0 else 0.0 for v in calls_vals]
+
+    used_rate = _mean(used_vals) if used_vals else None
+    mean_calls = _mean(calls_vals) if calls_vals else None
+    mean_errors = _mean(err_vals) if err_vals else None
+    hit_max_turns = _mean(max_turns_vals) if max_turns_vals else None
+
+    # Per-step prefix-cache hit fraction + step-level tool metrics
+    per_step_cache: list[dict[str, Any]] = []
+    for s in run.steps:
+        cached = s.native_tokens.get("prefill_cached", 0) + s.native_discarded_tokens.get(
+            "prefill_cached", 0
+        )
+        uncached = s.native_tokens.get("prefill_uncached", 0) + s.native_discarded_tokens.get(
+            "prefill_uncached", 0
+        )
+        if cached + uncached == 0 and s.step in run.groups_by_step:
+            cached = sum(g.estimated_prefill_cached for g in run.groups_by_step[s.step])
+            uncached = sum(g.estimated_prefill_uncached for g in run.groups_by_step[s.step])
+        total_pre = cached + uncached
+        row: dict[str, Any] = {
+            "step": s.step,
+            "cache_hit_frac": round(cached / total_pre, 4) if total_pre > 0 else None,
+            "used_tool": _first_present(s.env_metrics, used_keys),
+            "tool_calls": _first_present(s.env_metrics, calls_keys),
+            "tool_errors": _first_present(s.env_metrics, err_keys),
+            "hit_max_turns": _first_present(s.env_metrics, max_turns_keys),
+        }
+        if any(
+            row[k] is not None
+            for k in ("cache_hit_frac", "used_tool", "tool_calls", "tool_errors", "hit_max_turns")
+        ):
+            per_step_cache.append(row)
+
+    has_tool_metrics = any(
+        v is not None for v in (used_rate, mean_calls, mean_errors, hit_max_turns)
+    )
+    is_multiturn = mean_turns is not None and mean_turns > 1.05
+    if not has_tool_metrics and not is_multiturn:
+        return None, None
+
+    td = ToolDiagnostics(
+        used_tool_rate=round(used_rate, 4) if used_rate is not None else None,
+        mean_tool_calls=round(mean_calls, 3) if mean_calls is not None else None,
+        mean_tool_errors=round(mean_errors, 3) if mean_errors is not None else None,
+        hit_max_turns_rate=round(hit_max_turns, 4) if hit_max_turns is not None else None,
+        hit_max_tokens_rate=round(trunc_frac, 4) if trunc_frac is not None else None,
+        mean_turns_per_episode=round(mean_turns, 2) if mean_turns is not None else None,
+        per_step_cache_hit=per_step_cache,
+    )
+
+    finding: DiagnosticFinding | None = None
+    if has_tool_metrics:
+        high_errors = mean_errors is not None and mean_errors >= 0.4
+        high_max_turns = hit_max_turns is not None and hit_max_turns >= 0.25
+        sev: str = "warn" if (high_errors or high_max_turns) else "pass"
+        parts: list[str] = []
+        if used_rate is not None:
+            parts.append(f"{used_rate:.0%} used tools")
+        if mean_calls is not None:
+            parts.append(f"{mean_calls:.2f} calls/ep")
+        if mean_errors is not None:
+            parts.append(f"{mean_errors:.2f} errors/ep")
+        if hit_max_turns is not None:
+            parts.append(f"{hit_max_turns:.1%} hit max_turns")
+        headline = ", ".join(parts)
+        detail = (
+            f"Multi-turn tool execution summary (mean {mean_turns:.2f} turns/ep). "
+            if mean_turns is not None
+            else "Multi-turn tool execution summary. "
+        )
+        if high_errors or high_max_turns:
+            detail += (
+                "Elevated tool errors or max_turns cutoffs indicate episodes burning turns on "
+                "failing calls or loops; inspect trajectories and consider tuning thinking effort "
+                "or tool error feedback."
+            )
+        else:
+            detail += (
+                "Tool calls and turn termination are well within healthy bounds across rollouts."
+            )
+        finding = DiagnosticFinding(
+            check_id="tool_use",
+            title="Multi-Turn Tool Execution",
+            severity=sev,  # type: ignore[arg-type]
+            headline=headline,
+            detail=detail,
+            metrics={
+                "used_tool_rate": td.used_tool_rate,
+                "mean_tool_calls": td.mean_tool_calls,
+                "mean_tool_errors": td.mean_tool_errors,
+                "hit_max_turns_rate": td.hit_max_turns_rate,
+                "mean_turns_per_episode": td.mean_turns_per_episode,
+            },
+        )
+    return td, finding
 
 
 def _bootstrap_ci_mean_diff(

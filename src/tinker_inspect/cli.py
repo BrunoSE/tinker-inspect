@@ -19,6 +19,12 @@ from tinker_inspect.html_report import (
 from tinker_inspect.loader import load_eval_jsonl, load_run
 from tinker_inspect.pricing import fetch_tinker_pricing, parse_rates_spec
 from tinker_inspect.schema import TokenCostRates
+from tinker_inspect.series import (
+    analyze_eval_series,
+    build_series_html,
+    render_series_terminal,
+    series_to_json,
+)
 from tinker_inspect.terminal import (
     diagnostics_to_json,
     has_failures,
@@ -26,6 +32,7 @@ from tinker_inspect.terminal import (
     render_eval_diff_terminal,
     render_run_terminal,
 )
+from tinker_inspect.watch import watch_run
 
 
 def _resolve_rates(
@@ -159,6 +166,72 @@ def _cmd_compare(args: argparse.Namespace) -> int:
     return 0
 
 
+def _parse_series_inputs(
+    raw_paths: Sequence[str],
+    labels_arg: str | None,
+) -> list[tuple[str, Path]]:
+    explicit_labels = [s.strip() for s in labels_arg.split(",")] if labels_arg else []
+    if explicit_labels and len(explicit_labels) != len(raw_paths):
+        raise ValueError(
+            f"--labels count ({len(explicit_labels)}) must match eval files ({len(raw_paths)})."
+        )
+    parsed: list[tuple[str, Path]] = []
+    for idx, spec in enumerate(raw_paths):
+        if not explicit_labels and "=" in spec and not Path(spec).exists():
+            lbl, path_s = spec.split("=", 1)
+            parsed.append((lbl.strip() or Path(path_s).stem, Path(path_s)))
+        else:
+            p = Path(spec)
+            lbl = explicit_labels[idx] if explicit_labels else p.stem
+            parsed.append((lbl, p))
+    return parsed
+
+
+def _cmd_series(args: argparse.Namespace) -> int:
+    labeled_paths = _parse_series_inputs(args.eval_jsonls, args.labels)
+    runs = [(label, load_eval_jsonl(path)) for label, path in labeled_paths]
+    summary = analyze_eval_series(
+        runs,
+        primary_metric=args.metric,
+        title=args.title,
+    )
+    if args.json:
+        print(series_to_json(summary))
+    else:
+        use_color = sys.stdout.isatty() and not args.no_color
+        print(render_series_terminal(summary, color=use_color))
+
+    if not args.no_html:
+        out_path = Path(args.out) if args.out else Path("tinker_series.html")
+        written = write_html(
+            build_series_html(summary, sanitize_paths=args.sanitize_paths),
+            out_path,
+        )
+        if not args.json:
+            print(f"\nHTML series report: {written}")
+        if args.open:
+            webbrowser.open(written.as_uri())
+    return 0
+
+
+def _cmd_watch(args: argparse.Namespace) -> int:
+    rates = _resolve_rates(
+        None,
+        rates_spec=args.rates,
+        fetch_pricing=False,
+    )
+    use_color = sys.stdout.isatty() and not args.no_color
+    return watch_run(
+        args.log_dir,
+        interval_s=args.interval,
+        fail_fast=args.fail_fast,
+        fail_on_warn=args.fail_on_warn,
+        rates=rates,
+        color=use_color,
+        max_polls=args.max_polls,
+    )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tinker-inspect",
@@ -229,12 +302,70 @@ def _build_parser() -> argparse.ArgumentParser:
     p_cmp.add_argument("--sanitize-paths", action="store_true", help="Redact local paths in HTML.")
     p_cmp.set_defaults(func=_cmd_compare)
 
+    # series
+    p_ser = sub.add_parser(
+        "series",
+        help="Compare 2+ eval JSONLs as a progression curve, Pareto chart, and task heatmap.",
+    )
+    p_ser.add_argument(
+        "eval_jsonls",
+        nargs="+",
+        help="Ordered eval JSONL paths (optionally prefixed as 'Label=path.jsonl').",
+    )
+    p_ser.add_argument(
+        "--labels",
+        help="Comma-separated display labels matching eval_jsonls.",
+    )
+    p_ser.add_argument("--metric", help="Primary metric override (default: auto-detected).")
+    p_ser.add_argument("--title", help="Report title.")
+    p_ser.add_argument("--out", help="Output HTML path (default: ./tinker_series.html).")
+    p_ser.add_argument("--no-html", action="store_true", help="Skip writing HTML.")
+    p_ser.add_argument("--open", action="store_true", help="Open HTML in browser.")
+    p_ser.add_argument("--json", action="store_true", help="Emit JSON summary to stdout.")
+    p_ser.add_argument("--no-color", action="store_true", help="Disable ANSI colors.")
+    p_ser.add_argument("--sanitize-paths", action="store_true", help="Redact local paths in HTML.")
+    p_ser.set_defaults(func=_cmd_series)
+
+    # watch
+    p_w = sub.add_parser(
+        "watch",
+        help="Live-monitor an active Tinker RL log_path directory and alert on health issues.",
+    )
+    p_w.add_argument("log_dir", help="Path to an active Tinker RL log_path directory.")
+    p_w.add_argument(
+        "--interval",
+        type=float,
+        default=2.0,
+        help="Poll interval in seconds (default: 2.0).",
+    )
+    p_w.add_argument(
+        "--fail-fast",
+        action="store_true",
+        help="Exit immediately with code 2 on FAIL health checks.",
+    )
+    p_w.add_argument(
+        "--fail-on-warn",
+        action="store_true",
+        help="With --fail-fast, also exit 2 on WARN health checks.",
+    )
+    p_w.add_argument(
+        "--rates", help="Custom USD/1M token rates: prefill,cached_prefill,sample,train."
+    )
+    p_w.add_argument("--no-color", action="store_true", help="Disable ANSI colors.")
+    p_w.add_argument(
+        "--max-polls",
+        type=int,
+        default=None,
+        help="Optional maximum poll iterations before exiting cleanly.",
+    )
+    p_w.set_defaults(func=_cmd_watch)
+
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     raw_argv = list(sys.argv[1:] if argv is None else argv)
-    known_subcommands = {"inspect", "diff", "compare"}
+    known_subcommands = {"inspect", "diff", "compare", "series", "watch"}
     # Allow `tinker-inspect /path/to/log_dir` shorthand without typing `inspect`.
     if raw_argv and raw_argv[0] not in known_subcommands and not raw_argv[0].startswith("-"):
         raw_argv = ["inspect", *raw_argv]

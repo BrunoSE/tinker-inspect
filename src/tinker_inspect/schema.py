@@ -218,6 +218,19 @@ class TokenSummary:
 
 
 @dataclass
+class ToolDiagnostics:
+    """Multi-turn tool-use, limit-hit, and prefix-cache diagnostics."""
+
+    used_tool_rate: float | None = None
+    mean_tool_calls: float | None = None
+    mean_tool_errors: float | None = None
+    hit_max_turns_rate: float | None = None
+    hit_max_tokens_rate: float | None = None
+    mean_turns_per_episode: float | None = None
+    per_step_cache_hit: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
 class RunDiagnostics:
     run_name: str
     model_name: str | None
@@ -245,6 +258,7 @@ class RunDiagnostics:
     per_step_drop_stats: list[dict[str, Any]]
     available_metrics: list[str]
     available_tags: list[str]
+    tools: ToolDiagnostics | None = None
 
 
 @dataclass

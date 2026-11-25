@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>tinker-inspect series — Inkling-2-Mini (free) — OOD Polaris 1/8 Olympiad Progression</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --surface-2: #f1f5f9;
+      --text: #0f172a;
+      --muted: #475569;
+      --border: #e2e8f0;
+      --accent: #2563eb;
+      --accent-soft: #eff6ff;
+      --pass: #059669;
+      --pass-bg: #dcfce7;
+      --warn: #d97706;
+      --warn-bg: #fef3c7;
+      --fail: #dc2626;
+      --fail-bg: #fee2e2;
+      --shadow: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #0b1120;
+        --surface: #111827;
+        --surface-2: #1e293b;
+        --text: #f1f5f9;
+        --muted: #94a3b8;
+        --border: #1f2937;
+        --accent: #60a5fa;
+        --accent-soft: #172554;
+        --pass: #34d399;
+        --pass-bg: #064e3b;
+        --warn: #fbbf24;
+        --warn-bg: #451a03;
+        --fail: #f87171;
+        --fail-bg: #450a0a;
+        --shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #0b1120;
+      --surface: #111827;
+      --surface-2: #1e293b;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --border: #1f2937;
+      --accent: #60a5fa;
+      --accent-soft: #172554;
+      --pass: #34d399;
+      --pass-bg: #064e3b;
+      --warn: #fbbf24;
+      --warn-bg: #451a03;
+      --fail: #f87171;
+      --fail-bg: #450a0a;
+      --shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .wrap { max-width: 1180px; margin: 0 auto; padding: 1.75rem 1.25rem 3rem; }
+    header {
+      display: flex; flex-wrap: wrap; align-items: flex-start;
+      justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem;
+    }
+    h1 { margin: 0; font-size: 1.55rem; font-weight: 800; letter-spacing: -0.02em; }
+    .sub { margin: 0.25rem 0 0; color: var(--muted); font-size: 0.9rem; }
+    .btn {
+      padding: 0.45rem 0.85rem; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--surface); color: var(--text); font-size: 0.85rem; font-weight: 600;
+      cursor: pointer; box-shadow: var(--shadow);
+    }
+    .btn:hover, .btn.active { border-color: var(--accent); color: var(--accent); }
+    .btn.active { background: var(--accent-soft); }
+    .kpis {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 0.9rem; margin-bottom: 1.5rem;
+    }
+    .kpi {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+      padding: 0.95rem 1.05rem; box-shadow: var(--shadow);
+    }
+    .kpi-label {
+      font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.04em;
+      color: var(--muted); font-weight: 700;
+    }
+    .kpi-val { font-size: 1.45rem; font-weight: 800; margin-top: 0.2rem; }
+    .kpi-sub { font-size: 0.8rem; color: var(--muted); margin-top: 0.15rem; }
+    .charts {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+      gap: 1rem; margin-bottom: 1.5rem;
+    }
+    .card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+      padding: 1.1rem 1.2rem; box-shadow: var(--shadow); margin-bottom: 1.5rem;
+    }
+    .charts .card { margin-bottom: 0; }
+    .card h2 { margin: 0 0 0.75rem; font-size: 1.05rem; font-weight: 700; }
+    .svg-box { width: 100%; overflow-x: auto; }
+    .svg-box svg { display: block; width: 100%; height: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+    th, td {
+      padding: 0.55rem 0.65rem; border-bottom: 1px solid var(--border);
+      text-align: left; vertical-align: middle;
+    }
+    th {
+      font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.03em;
+      color: var(--muted); font-weight: 700; background: var(--surface-2);
+    }
+    td.num, th.num {
+      text-align: right;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .badge {
+      display: inline-block; padding: 0.12rem 0.45rem; border-radius: 999px;
+      font-weight: 700; font-size: 0.78rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .badge.pos { background: var(--pass-bg); color: var(--pass); }
+    .badge.neg { background: var(--fail-bg); color: var(--fail); }
+    .badge.neu { background: var(--surface-2); color: var(--muted); }
+    .controls {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 0.85rem;
+    }
+    .search {
+      flex: 1 1 220px; padding: 0.45rem 0.7rem; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--bg);
+      color: var(--text); font-size: 0.86rem;
+    }
+    .cell {
+      display: inline-block; min-width: 44px; text-align: center; padding: 0.16rem 0.35rem;
+      border-radius: 6px; font-weight: 700; font-size: 0.78rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .task-row { cursor: pointer; }
+    .task-row:hover { background: var(--surface-2); }
+    .prompt-preview {
+      max-width: 420px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      color: var(--muted); font-size: 0.84rem;
+    }
+    .prompt-expand {
+      background: var(--surface-2); padding: 0.75rem 0.9rem; border-radius: 8px;
+      white-space: pre-wrap; font-size: 0.84rem; margin: 0.25rem 0;
+    }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1 id="page-title">Eval Series</h1>
+        <p class="sub" id="page-sub"></p>
+      </div>
+      <button class="btn" id="theme-toggle" type="button">Theme</button>
+    </header>
+
+    <div class="kpis" id="kpi-strip"></div>
+
+    <div class="charts">
+      <div class="card">
+        <h2>Progression Across Checkpoints (95% Bootstrap CI)</h2>
+        <div class="svg-box" id="chart-progress"></div>
+      </div>
+      <div class="card">
+        <h2 id="pareto-title">Accuracy vs Efficiency Pareto</h2>
+        <div class="svg-box" id="chart-pareto"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Progression Metrics Table</h2>
+      <div style="overflow-x:auto">
+        <table id="metrics-table"></table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Per-Task Trajectory Heatmap</h2>
+      <div class="controls">
+        <input
+          class="search"
+          id="task-search"
+          type="search"
+          placeholder="Filter by task id or prompt text..."
+        />
+        <button class="btn active" data-filter="all" type="button">All</button>
+        <button class="btn" data-filter="solved" type="button">Flipped Solved</button>
+        <button class="btn" data-filter="regressed" type="button">Regressed</button>
+        <button class="btn" data-filter="hard" type="button">Always Hard</button>
+        <button class="btn" data-filter="always_solved" type="button">Always Solved</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table id="heatmap-table"></table>
+      </div>
+    </div>
+  </div>
+
+  <script id="tinker-series-data" type="application/json">{"title":"Inkling-2-Mini (free) — OOD Polaris 1/8 Olympiad Progression","primary_metric":"success","num_tasks":48,"points":[{"label":"Base CoT","num_episodes":96,"failed_episodes":0,"primary_mean":0.25,"delta_vs_base":0.0,"ci_low":0.0,"ci_high":0.0,"wins_vs_base":0,"regressions_vs_base":0,"ties_vs_base":48,"metric_means":{"success":0.25,"outcome":0.25,"correct":0.25,"reward":0.25,"format_ok":0.5625,"shaped_reward":0.25},"mean_output_tokens":2855.0729166666665,"mean_turns":1.0,"mean_answer_chars":413.5729166666667,"used_tool_rate":0.0,"mean_tool_errors":null},{"label":"Base TIR","num_episodes":96,"failed_episodes":0,"primary_mean":0.3125,"delta_vs_base":0.0625,"ci_low":-0.020833333333333332,"ci_high":0.15625,"wins_vs_base":9,"regressions_vs_base":5,"ties_vs_base":34,"metric_means":{"success":0.3125,"outcome":0.3125,"correct":0.3125,"reward":0.3125,"format_ok":0.5833333333333334,"shaped_reward":0.3125},"mean_output_tokens":2698.0208333333335,"mean_turns":2.1458333333333335,"mean_answer_chars":194.83333333333334,"used_tool_rate":0.5,"mean_tool_errors":0.34375},{"label":"Step-16 CoT RL","num_episodes":96,"failed_episodes":0,"primary_mean":0.34375,"delta_vs_base":0.09375,"ci_low":0.0,"ci_high":0.20833333333333334,"wins_vs_base":10,"regressions_vs_base":5,"ties_vs_base":33,"metric_means":{"success":0.34375,"outcome":0.34375,"correct":0.34375,"reward":0.34375,"format_ok":0.625,"shaped_reward":0.34375},"mean_output_tokens":2768.5520833333335,"mean_turns":1.0,"mean_answer_chars":425.6145833333333,"used_tool_rate":0.0,"mean_tool_errors":null},{"label":"Step-32 CoT RL","num_episodes":96,"failed_episodes":0,"primary_mean":0.375,"delta_vs_base":0.125,"ci_low":0.020833333333333332,"ci_high":0.21875,"wins_vs_base":13,"regressions_vs_base":3,"ties_vs_base":32,"metric_means":{"success":0.375,"outcome":0.375,"correct":0.375,"reward":0.375,"format_ok":0.6354166666666666,"shaped_reward":0.375},"mean_output_tokens":2574.3541666666665,"mean_turns":1.0,"mean_answer_chars":428.9270833333333,"used_tool_rate":0.0,"mean_tool_errors":null},{"label":"16-Step TIR RL","num_episodes":96,"failed_episodes":0,"primary_mean":0.46875,"delta_vs_base":0.21875,"ci_low":0.11458333333333333,"ci_high":0.3229166666666667,"wins_vs_base":19,"regressions_vs_base":3,"ties_vs_base":26,"metric_means":{"success":0.46875,"outcome":0.46875,"correct":0.46875,"reward":0.46875,"format_ok":0.8020833333333334,"shaped_reward":0.46875},"mean_output_tokens":1780.5,"mean_turns":1.8854166666666667,"mean_answer_chars":197.0,"used_tool_rate":0.46875,"mean_tool_errors":0.21875}],"tasks":[{"task_key":"task:polaris_49969","task_id":"polaris_49969","prompt":"Four congruent semicircles are drawn on the surface of a sphere with radius $2$ , as\nshown, creating a close curve that divides the surface into two congruent regions.\nThe length of the curve is $\\pi\\sqrt{n}$ . What is $n$","scores":[0.0,0.0,1.0,0.5,0.5],"deltas_vs_base":[0.0,0.0,1.0,0.5,0.5],"final_delta":0.5,"flipped_solved":true,"flipped_regressed":false},{"task_key":"task:polaris_2091","task_id":"polaris_2091","prompt":"In a set of five numbers, the average of two of the numbers is 12 and the average of the other three numbers is 7. The average of all five numbers is:\n(A) $8 \\frac{1}{3}$\n(B) $8 \\frac{1}{2}$\n(C) 9\n(D) $8 \\frac{3}{4}$\n(E) $9 \\frac{1}{2}$","scores":[1.0,1.0,1.0,1.0,1.0],"deltas_vs_base":[0.0,0.0,0.0,0.0,0.0],"final_delta":0.0,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_35143","task_id":"polaris_35143","prompt":"8.2. Find the largest natural number with all distinct digits such that the sum of any two of its digits is a prime number.","scores":[0.5,1.0,1.0,1.0,1.0],"deltas_vs_base":[0.0,0.5,0.5,0.5,0.5],"final_delta":0.5,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_48123","task_id":"polaris_48123","prompt":"4. Let natural numbers $p, q(p\u003cq)$ be given. Find the least natural number $m$ with the following property: the sum of all fractions whose denominators (in lowest terms) are equal to $m$ and whose values lie in the open interval $(p, q)$ is at least $56\\left(q^{2}-p^{2}\\right)$.","scores":[0.5,0.5,0.0,0.5,1.0],"deltas_vs_base":[0.0,0.0,-0.5,0.0,0.5],"final_delta":0.5,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_39261","task_id":"polaris_39261","prompt":"A midpoint plotter is an instrument which draws the exact mid point of two point previously drawn. Starting off two points  $1$  unit of distance apart and using only the midpoint plotter, you have to get two point which are strictly at a distance between  $\\frac{1}{2017}$  and  $\\frac{1}{2016}$  units, drawing the minimum amount of points. ¿Which is the minimum number of times you will need to use the midpoint plotter and what strategy should you follow to achieve it?","scores":[0.0,0.0,0.0,0.0,0.5],"deltas_vs_base":[0.0,0.0,0.0,0.0,0.5],"final_delta":0.5,"flipped_solved":true,"flipped_regressed":false},{"task_key":"task:polaris_38249","task_id":"polaris_38249","prompt":"Let $ABCD$ be a convex quadrilateral for which $DA = AB$ and $CA = CB$. Set $I_0 = C$ and $J_0 = D$, and for each nonnegative integer $n$, let $I_{n+1}$ and $J_{n+1}$ denote the incenters of $\\triangle I_nAB$ and $\\triangle J_nAB$, respectively.\n\nSuppose that \\[ \\angle DAC = 15^{\\circ}, \\quad \\angle BAC = 65^{\\circ} \\quad \\text{and} \\quad \\angle J_{2013}J_{2014}I_{2014} = \\left( 90 + \\frac{2k+1}{2^n} \\right)^{\\circ} \\] for some nonnegative integers $n$ and $k$. Compute $n+k$.","scores":[0.0,0.0,0.0,0.0,0.0],"deltas_vs_base":[0.0,0.0,0.0,0.0,0.0],"final_delta":0.0,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_3837","task_id":"polaris_3837","prompt":"Two trains, each composed of 15 identical cars, were moving towards each other at constant speeds. Exactly 28 seconds after their first cars met, a passenger named Sasha, sitting in the compartment of the third car, passed by a passenger named Valera in the opposite train. Moreover, 32 seconds later, the last cars of these trains completely passed each other. In which car was Valera traveling?","scores":[1.0,0.5,1.0,1.0,1.0],"deltas_vs_base":[0.0,-0.5,0.0,0.0,0.0],"final_delta":0.0,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_49832","task_id":"polaris_49832","prompt":"Auto: : Yashchenko I. I. From Flower City to Sunny City, there is a highway 12 km long. On the second kilometer of this highway, there is a railway crossing, which is closed for three minutes and open for three minutes, and so on. On the fourth and sixth kilometers, there are traffic lights, which are red for two minutes and green for three minutes, and so on. Nезнayka sets out from Flower City to Sunny City at the moment when the crossing has just closed, and both traffic lights have just switched to red. What is the shortest time (in minutes) he can reach\n\nSunny City without breaking the rules, if his electric car travels along the highway at a constant speed (Nезнayka does not know how to brake or increase speed $) ?$\n\n#","scores":[1.0,0.5,1.0,1.0,0.5],"deltas_vs_base":[0.0,-0.5,0.0,0.0,-0.5],"final_delta":-0.5,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_47326","task_id":"polaris_47326","prompt":"Problem 8.3. How many lines exist that pass through the point $(0,2019)$ and intersect the parabola $y=x^{2}$ at two points with integer coordinates on the $y$-axis?\n\nAnswer: 9.","scores":[0.0,0.0,0.0,1.0,1.0],"deltas_vs_base":[0.0,0.0,0.0,1.0,1.0],"final_delta":1.0,"flipped_solved":true,"flipped_regressed":false},{"task_key":"task:polaris_8552","task_id":"polaris_8552","prompt":"Let \\( K(x) \\) be the number of irreducible fractions \\( \\frac{a}{b} \\) such that \\( a \u003c x \\) and \\( b \u003c x \\) (where \\( a \\) and \\( b \\) are natural numbers).\n\nFor example, \\( K\\left(\\frac{5}{2}\\right) = 3 \\) (the fractions are \\( 1, 2, \\frac{1}{2} \\)).\n\nCompute the sum \\( K(100) + K\\left(\\frac{100}{2}\\right) + K\\left(\\frac{100}{3}\\right) + \\ldots + K\\left(\\frac{100}{99}\\right) + K\\left(\\frac{100}{100}\\right) \\).","scores":[0.0,1.0,0.5,0.0,1.0],"deltas_vs_base":[0.0,1.0,0.5,0.0,1.0],"final_delta":1.0,"flipped_solved":true,"flipped_regressed":false},{"task_key":"task:polaris_4817","task_id":"polaris_4817","prompt":"Edward, the author of this test, had to escape from prison to work in the grading room today. He stopped to rest at a place  $1,875$  feet from the prison and was spotted by a guard with a crossbow. \n\nThe guard fired an arrow with an initial velocity of  $100 \\dfrac{\\text{ft}}{\\text{s}}$ .  At the same time, Edward started running away with an acceleration of  $1 \\dfrac{\\text{ft}}{\\text{s}^2}$ .  Assuming that air resistance causes the arrow to decelerate at  $1 \\dfrac{\\text{ft}}{\\text{s}^2}$ , and that it does hit Edward, how fast was the arrow moving at the moment of impact (in  $\\dfrac{\\text{ft}}{\\text{s}}$ )?","scores":[0.0,1.0,0.5,1.0,1.0],"deltas_vs_base":[0.0,1.0,0.5,1.0,1.0],"final_delta":1.0,"flipped_solved":true,"flipped_regressed":false},{"task_key":"task:polaris_38380","task_id":"polaris_38380","prompt":"Detective Smith, a retired NYPD detective, now teaches criminal justice courses at John Jay College. In his class, Detective Smith assigns a project where each student must solve a mock case. He plans to give each of his 24 students 3 different mock cases to work on, each requiring 5 hours of investigation. If Detective Smith spends an additional 2 hours per student to review and grade their work, how many total hours will Detective Smith need to spend on assigning, reviewing, and grading all the projects?","scores":[1.0,1.0,0.5,0.0,0.5],"deltas_vs_base":[0.0,0.0,-0.5,-1.0,-0.5],"final_delta":-0.5,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_7069","task_id":"polaris_7069","prompt":"The sequence  $ (a_n)$  satisfies  $ a_0 \\equal{} 0$  and  $ \\displaystyle a_{n \\plus{} 1} \\equal{} \\frac85a_n \\plus{} \\frac65\\sqrt {4^n \\minus{} a_n^2}$  for  $ n\\ge0$ . Find the greatest integer less than or equal to  $ a_{10}$ .","scores":[0.5,1.0,0.5,0.0,1.0],"deltas_vs_base":[0.0,0.5,0.0,-0.5,0.5],"final_delta":0.5,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_36665","task_id":"polaris_36665","prompt":"Problem 7.4. On Monday, 5 people in the class received fives in math, on Tuesday, 8 people received fives, on Wednesday - 6 people, on Thursday - 4 people, on Friday - 9 people. No student received fives on two consecutive days. What is the minimum number of students that could have been in the class","scores":[0.5,0.5,0.0,0.5,1.0],"deltas_vs_base":[0.0,0.0,-0.5,0.0,0.5],"final_delta":0.5,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_7475","task_id":"polaris_7475","prompt":"An investor placed $\\$15,000$ in a three-month term deposit that offered a simple annual interest rate of $8\\%$. After three months, the total value of the deposit was reinvested in another three-month term deposit. After these three months, the investment amounted to $\\$15,735$. Determine the annual interest rate, $s\\%$, of the second term deposit.","scores":[0.0,0.0,0.0,0.0,0.0],"deltas_vs_base":[0.0,0.0,0.0,0.0,0.0],"final_delta":0.0,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_48167","task_id":"polaris_48167","prompt":"11. As shown in the figure, in $\\triangle \\mathrm{ABC}$, $\\mathrm{M}$ is the midpoint of side $\\mathrm{AB}$, $\\mathrm{N}$ is a trisection point on side $\\mathrm{AC}$, and $\\mathrm{CM}$ intersects $\\mathrm{BN}$ at point K. If the area of $\\triangle B C K$ is 1, then the area of $\\triangle A B C$ is $\\qquad$ .","scores":[0.0,0.0,0.0,0.0,0.0],"deltas_vs_base":[0.0,0.0,0.0,0.0,0.0],"final_delta":0.0,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_11355","task_id":"polaris_11355","prompt":"While waiting for customers, a watermelon seller sequentially weighed 20 watermelons (weighing 1 kg, 2 kg, 3 kg, ..., 20 kg), balancing each watermelon on one side of the scale with one or two weights on the other side (possibly identical weights). The seller recorded on a piece of paper the weights of the scales he used. What is the smallest number of different weights that could appear in his records if the mass of each weight is an integer kilogram?","scores":[0.5,0.0,0.0,0.0,0.5],"deltas_vs_base":[0.0,-0.5,-0.5,-0.5,0.0],"final_delta":0.0,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_2122","task_id":"polaris_2122","prompt":"Petya's bank account contains $500. The bank allows only two types of transactions: withdrawing $300 or adding $198. What is the maximum amount Petya can withdraw from the account, if he has no other money?","scores":[0.0,0.0,0.0,0.0,0.5],"deltas_vs_base":[0.0,0.0,0.0,0.0,0.5],"final_delta":0.5,"flipped_solved":true,"flipped_regressed":false},{"task_key":"task:polaris_4110","task_id":"polaris_4110","prompt":"The two figures shown are made of unit squares. What is the positive difference of the perimeters, in units?\n\n[asy]\ndraw((0,0)--(0,1)--(5,1)--(5,0)--cycle,linewidth(1));\ndraw((1,0)--(1,2)--(4,2)--(4,0),linewidth(1));\ndraw((2,-1)--(2,3)--(3,3)--(3,-1)--cycle,linewidth(1));\ndraw((7,0)--(7,2)--(12,2)--(12,0)--cycle,linewidth(1));\ndraw((7,1)--(12,1),linewidth(1));\ndraw((8,0)--(8,2),linewidth(1));\ndraw((9,0)--(9,2),linewidth(1));\ndraw((10,0)--(10,2),linewidth(1));\ndraw((11,0)--(11,2),linewidth(1));\n\n[/asy]","scores":[1.0,1.0,1.0,1.0,1.0],"deltas_vs_base":[0.0,0.0,0.0,0.0,0.0],"final_delta":0.0,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_7541","task_id":"polaris_7541","prompt":"The area of trapezoid $ABCD$ with bases $AD$ and $BC$ ($AD \u003e BC$) is 48, and the area of triangle $AOB$, where $O$ is the intersection point of the diagonals of the trapezoid, is 9. Find the ratio of the bases of the trapezoid $AD: BC$.","scores":[0.0,0.5,0.0,0.0,0.0],"deltas_vs_base":[0.0,0.5,0.0,0.0,0.0],"final_delta":0.0,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_48150","task_id":"polaris_48150","prompt":"1. Alice and Ben play the game on a board with 72 cells around a circle. First, Ben chooses some cells and places one chip on each of them. Each round, Alice first chooses one empty cell and then Ben moves a chip from one of the adjacent cell onto the chosen one. If Ben fails to do so, the game ends; otherwise, another round follows. Determine the smallest number of chips for which Ben can guarantee that the game will last for at least 2023 rounds.\n\n(Václav Blažej)","scores":[0.0,0.0,0.0,0.0,0.0],"deltas_vs_base":[0.0,0.0,0.0,0.0,0.0],"final_delta":0.0,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_46260","task_id":"polaris_46260","prompt":"In the image, squares $ABCD, EFCA, GHC E$, and $IJHE$ are illustrated. Points $S, B$, $F$, and $G$ are centers of these squares, respectively. The segment $AC$ is $1 \\text{ cm}$ long.\n\nDetermine the area of triangle $IJS$.\n\n(Hint: The area of the triangle is half the area of some rectangle.)","scores":[0.0,0.0,1.0,0.5,1.0],"deltas_vs_base":[0.0,0.0,1.0,0.5,1.0],"final_delta":1.0,"flipped_solved":true,"flipped_regressed":false},{"task_key":"task:polaris_2574","task_id":"polaris_2574","prompt":"Point \\(P\\) is located inside a square \\(ABCD\\) with side length 10. Let \\(O_1, O_2, O_3\\), and \\(O_4\\) be the circumcenters of \\(\\triangle PAB, \\triangle PBC, \\triangle PCD\\), and \\(\\triangle PDA\\), respectively. Given that \\(PA + PB + PC + PD = 23\\sqrt{2}\\) and the area of quadrilateral \\(O_1O_2O_3O_4\\) is 50, the second largest of the lengths \\(O_1O_2, O_2O_3, O_3O_4,\\) and \\(O_4O_1\\) can be written as \\(\\sqrt{\\frac{a}{b}}\\), where \\(a\\) and \\(b\\) are relatively prime positive integers. Compute \\(100a + b\\).","scores":[0.0,0.0,0.0,0.0,0.0],"deltas_vs_base":[0.0,0.0,0.0,0.0,0.0],"final_delta":0.0,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_49060","task_id":"polaris_49060","prompt":"Problem 11.5. Quadrilateral $ABCD$ is inscribed in a circle. It is known that $BC=CD, \\angle BCA=$ $64^{\\circ}, \\angle ACD=70^{\\circ}$. A point $O$ is marked on segment $AC$ such that $\\angle ADO=32^{\\circ}$. How many degrees does the angle $BOC$ measure?\n\n![](https://cdn.mathpix.com/cropped/2024_05_06_8af0c885427e3e323cf9g-43.jpg?height=448\u0026width=519\u0026top_left_y=234\u0026top_left_x=465)","scores":[0.0,0.0,0.0,0.0,0.0],"deltas_vs_base":[0.0,0.0,0.0,0.0,0.0],"final_delta":0.0,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_37926","task_id":"polaris_37926","prompt":"Let \\( \\triangle ABC \\) be an equilateral triangle, and let \\( P \\) be an interior point. The perpendicular projections of \\( P \\) onto the sides \\( BC \\), \\( CA \\), and \\( AB \\) are \\( P_1 \\), \\( P_2 \\), and \\( P_3 \\), respectively. Show that the sum \\( BP_1 + CP_2 + AP_3 \\) is independent of the position of point \\( P \\).","scores":[0.0,0.5,1.0,0.5,0.5],"deltas_vs_base":[0.0,0.5,1.0,0.5,0.5],"final_delta":0.5,"flipped_solved":true,"flipped_regressed":false},{"task_key":"task:polaris_43296","task_id":"polaris_43296","prompt":"Let $f$ be an infinitely differentiable real-valued function defined on the real numbers. If\n$$\nf\\left(\\frac{1}{n}\\right)=\\frac{n^{2}}{n^{2}+1}, \\quad n=1,2,3, \\ldots\n$$\ncompute the values of the derivatives $f^{(k)}(0), k=1,2,3, \\ldots$.","scores":[0.0,0.0,0.0,0.0,0.0],"deltas_vs_base":[0.0,0.0,0.0,0.0,0.0],"final_delta":0.0,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_50037","task_id":"polaris_50037","prompt":"9. Bags in the Shed. A truck delivered 4 bags of cement. They are stacked in the truck bed. The worker can carry one bag at a time from the truck to the gate, or from the gate to the shed. The worker can carry the bags in any order, each time taking the top bag, carrying it where needed, and placing it on top of the stack (if there are already bags). If there is a choice to carry a bag from the truck or from the gate, the worker chooses each option with a probability of 0.5. In the end, all the bags end up in the shed.\n\na) (for 7th grade, 1 point). What is the probability that the bags will end up in the shed in the reverse order compared to how they were stacked in the truck?\n\nb) (for 7th grade, 1 point). What is the probability that the bag that was second from the bottom in the truck will end up at the bottom in the shed?","scores":[0.0,0.0,0.0,0.0,0.5],"deltas_vs_base":[0.0,0.0,0.0,0.0,0.5],"final_delta":0.5,"flipped_solved":true,"flipped_regressed":false},{"task_key":"task:polaris_8851","task_id":"polaris_8851","prompt":"Three numbers have a mean (average) of 7. The mode of these three numbers is 9. What is the smallest of these three numbers?\n(A) 1\n(B) 2\n(C) 3\n(D) 4\n(E) 5","scores":[1.0,1.0,1.0,1.0,1.0],"deltas_vs_base":[0.0,0.0,0.0,0.0,0.0],"final_delta":0.0,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_50255","task_id":"polaris_50255","prompt":"Suppose  $P(x)$  is a monic polynomial of degree  $2023$  such that  $P(k) = k^{2023}P(1-\\frac{1}{k})$  for every positive integer  $1 \\leq k \\leq 2023$ . Then  $P(-1) = \\frac{a}{b}$  where  $a$  and  $b$  are relatively prime integers. Compute the unique integer  $0 \\leq n \u003c 2027$  such that  $bn-a$  is divisible by the prime  $2027$ .","scores":[0.0,0.0,0.0,0.0,0.0],"deltas_vs_base":[0.0,0.0,0.0,0.0,0.0],"final_delta":0.0,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_548","task_id":"polaris_548","prompt":"In the Cartesian coordinate plane \\(xOy\\), points \\(A\\) and \\(B\\) are on the parabola \\(y^2 = 4x\\) and satisfy \\(\\overrightarrow{OA} \\cdot \\overrightarrow{OB} = -4\\). \\(F\\) is the focus of the parabola. Find \\(S_{\\triangle OP} \\cdot S_{\\triangle ORP} =\\).","scores":[0.0,0.0,0.0,0.5,0.5],"deltas_vs_base":[0.0,0.0,0.0,0.5,0.5],"final_delta":0.5,"flipped_solved":true,"flipped_regressed":false},{"task_key":"task:polaris_9942","task_id":"polaris_9942","prompt":"Compute the number of geometric sequences of length  $3$  where each number is a positive integer no larger than  $10$ .","scores":[0.0,0.0,0.0,0.0,0.0],"deltas_vs_base":[0.0,0.0,0.0,0.0,0.0],"final_delta":0.0,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_51260","task_id":"polaris_51260","prompt":"Let $A = {1,2,3,4,5}$ and $B = {0,1,2}$. Find the number of pairs of functions ${{f,g}}$ where both f and g map the set A into the set B and there are exactly two elements $x \\in A$ where $f(x) = g(x)$. For example, the function f that maps $1 \\rightarrow 0,2 \\rightarrow 1,3 \\rightarrow 0,4 \\rightarrow 2,5 \\rightarrow 1$ and the constant function g which maps each element of A to 0 form such a pair of functions.","scores":[0.5,0.5,0.0,0.5,0.0],"deltas_vs_base":[0.0,0.0,-0.5,0.0,-0.5],"final_delta":-0.5,"flipped_solved":false,"flipped_regressed":true},{"task_key":"task:polaris_9769","task_id":"polaris_9769","prompt":"Find the probability that if the digits $0,1,2, \\ldots, 9$ are placed in random order into the empty places in the row of digits\n\n$$\n5-383-8-2-936-5-8-203-9-3-76\n$$\n\nthe resulting number will be divisible by 396.","scores":[0.5,1.0,1.0,1.0,1.0],"deltas_vs_base":[0.0,0.5,0.5,0.5,0.5],"final_delta":0.5,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_47209","task_id":"polaris_47209","prompt":"Let  $\\triangle ABC$  be a right triangle with hypotenuse  $AC$ . A square is inscribed in the triangle such that points  $D,E$  are on  $AC$ ,  $F$  is on  $BC$ , and  $G$  is on  $AB$ . Given that  $AG=2$  and  $CF=5$ , what is the area of  $\\triangle BFG$ ?","scores":[0.5,1.0,1.0,1.0,1.0],"deltas_vs_base":[0.0,0.5,0.5,0.5,0.5],"final_delta":0.5,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_6277","task_id":"polaris_6277","prompt":"If $a$ and $b$ are additive inverses, $c$ and $d$ are multiplicative inverses, and the absolute value of $m$ is 1, find $(a+b)cd-2009m=$ \\_\\_\\_\\_\\_\\_.","scores":[0.0,0.0,0.0,0.0,0.0],"deltas_vs_base":[0.0,0.0,0.0,0.0,0.0],"final_delta":0.0,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_2196","task_id":"polaris_2196","prompt":"You are given two line segments of length \\(2^{n}\\) for each integer \\(0 \\leq n \\leq 10\\). How many distinct nondegenerate triangles can you form with three of the segments? Two triangles are considered distinct if they are not congruent.","scores":[1.0,1.0,1.0,1.0,1.0],"deltas_vs_base":[0.0,0.0,0.0,0.0,0.0],"final_delta":0.0,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_3390","task_id":"polaris_3390","prompt":"It is known that the numbers EGGPLANT and TOAD are divisible by 3. What is the remainder when the number CLAN is divided by 3? (Letters denote digits, identical letters represent identical digits, different letters represent different digits).","scores":[0.0,0.0,0.0,0.0,0.0],"deltas_vs_base":[0.0,0.0,0.0,0.0,0.0],"final_delta":0.0,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_40776","task_id":"polaris_40776","prompt":"8.1. A dandelion blooms in the morning, remains yellow for this and the next day, turns white on the third morning, and by evening of the third day, it has lost its petals. Yesterday afternoon, there were 20 yellow and 14 white dandelions on the meadow, and today there are 15 yellow and 11 white. How many yellow dandelions were there on the meadow the day before yesterday? Provide all possible answers and prove that there are no others.","scores":[0.5,0.0,0.5,1.0,1.0],"deltas_vs_base":[0.0,-0.5,0.0,0.5,0.5],"final_delta":0.5,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_6000","task_id":"polaris_6000","prompt":"Numbers from 1 to 100 are written in a vertical row in ascending order. Fraction bars of different sizes are inserted between them. The calculation starts with the smallest fraction bar and ends with the largest one, for example, $\\frac{1}{\\frac{5}{3}}=\\frac{15}{4}$. What is the greatest possible value that the resulting fraction can have?","scores":[0.0,0.0,0.0,0.0,0.0],"deltas_vs_base":[0.0,0.0,0.0,0.0,0.0],"final_delta":0.0,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_46138","task_id":"polaris_46138","prompt":"31. For each number from 1 to 1000, all its natural divisors were listed (as a result, some numbers were listed multiple times). Determine which is greater: the sum of all listed numbers or one million?","scores":[0.0,0.0,0.0,0.5,0.5],"deltas_vs_base":[0.0,0.0,0.0,0.5,0.5],"final_delta":0.5,"flipped_solved":true,"flipped_regressed":false},{"task_key":"task:polaris_9598","task_id":"polaris_9598","prompt":"There are 101 people participating in a Secret Santa gift exchange. As usual each person is randomly assigned another person for whom (s)he has to get a gift, such that each person gives and receives exactly one gift and no one gives a gift to themself. What is the probability that the first person neither gives gifts to or receives gifts from the second or third person? Express your answer as a decimal rounded to five decimal places.","scores":[0.0,0.0,0.0,0.0,0.0],"deltas_vs_base":[0.0,0.0,0.0,0.0,0.0],"final_delta":0.0,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_250","task_id":"polaris_250","prompt":"Sasha has  $10$  cards with numbers  $1, 2, 4, 8,\\ldots, 512$ . He writes the number  $0$  on the board and invites Dima to play a game. Dima tells the integer  $0 \u003c p \u003c 10, p$  can vary from round to round. Sasha chooses  $p$  cards before which he puts a “ $+$ ” sign, and before the other cards he puts a “ $-$ \" sign. The obtained number is calculated and added to the number on the board. Find the greatest absolute value of the number on the board Dima can get on the board after several rounds regardless Sasha’s moves.","scores":[0.0,0.0,0.0,0.0,0.0],"deltas_vs_base":[0.0,0.0,0.0,0.0,0.0],"final_delta":0.0,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_9218","task_id":"polaris_9218","prompt":"Depict on the plane the set $\\Phi$, consisting of points $(x ; y)$ on the coordinate plane that satisfy the system of inequalities\n\n$$\n\\left\\{\\begin{array}{l}\n\\sqrt{y^{2}-8 x^{2}-6 y+9} \\leqslant 3 y-1 \\\\\nx^{2}+y^{2} \\leqslant 9\n\\end{array}\\right.\n$$\n\nDetermine how many parts the set $\\Phi$ consists of.","scores":[0.0,0.5,1.0,1.0,1.0],"deltas_vs_base":[0.0,0.5,1.0,1.0,1.0],"final_delta":1.0,"flipped_solved":true,"flipped_regressed":false},{"task_key":"task:polaris_10444","task_id":"polaris_10444","prompt":"A highway with a length of 12 km connects Flower Town to Sunny Town. On the second kilometer of this highway, there is a railway crossing that is closed for three minutes and then open for three minutes, and so on. Additionally, there are traffic lights located at the fourth and sixth kilometers. These traffic lights show a red light for two minutes and a green light for three minutes, and so on. Neznaika (a character) starts his journey from Flower Town to Sunny Town exactly when the railway crossing has just closed, and both traffic lights have just turned red. What is the shortest possible time (in minutes) Neznaika can reach Sunny Town without breaking any rules, given that his electric car travels at a constant speed (Neznaika cannot either brake or increase speed)?","scores":[0.5,0.0,1.0,1.0,0.5],"deltas_vs_base":[0.0,-0.5,0.5,0.5,0.0],"final_delta":0.0,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_38218","task_id":"polaris_38218","prompt":"7. Two small balls with charges $Q=-20 \\cdot 10^{-6}$ C and $q=50 \\cdot 10^{-6}$ C are located at the vertices $A$ and $B$ of a mountain slope (see figure). It is known that $AB=2$ m, $AC=3$ m. The masses of the balls are the same and equal to $m=200$ g each. At the initial moment of time, the ball with charge $q$ is released with zero initial velocity. Determine its speed at the moment when it reaches point $C$. The surface of the mountain slope is considered smooth. The acceleration due to gravity $g=10$ m/s², and the proportionality constant in Coulomb's law $k=9 \\cdot 10^{9}$ N·m²/C². (10 points)\n\n![](https://cdn.mathpix.com/cropped/2024_05_06_fbb46158359318ba2f7fg-11.jpg?height=431\u0026width=625\u0026top_left_y=1258\u0026top_left_x=727)","scores":[0.0,0.0,0.0,0.0,0.0],"deltas_vs_base":[0.0,0.0,0.0,0.0,0.0],"final_delta":0.0,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_2702","task_id":"polaris_2702","prompt":"Given that the polar coordinate equation of curve $C$ is $ρ=2\\cos θ$, and the polar coordinate equation of line $l$ is $ρ\\sin (θ+ \\frac {π}{6})=m$. If line $l$ and curve $C$ have exactly one common point, find the value of the real number $m$.","scores":[0.0,0.0,0.0,0.0,0.0],"deltas_vs_base":[0.0,0.0,0.0,0.0,0.0],"final_delta":0.0,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_8976","task_id":"polaris_8976","prompt":"What is the area of the shaded figure shown below?","scores":[0.0,0.0,0.0,0.0,0.0],"deltas_vs_base":[0.0,0.0,0.0,0.0,0.0],"final_delta":0.0,"flipped_solved":false,"flipped_regressed":false},{"task_key":"task:polaris_48723","task_id":"polaris_48723","prompt":"Point \\( I \\) is the intersection point of the angle bisectors of triangle \\( ABC \\). Point \\( X \\) is marked on side \\( BC \\). It turns out that \\( AI = BX \\), \\( AC = CX \\), and \\(\\angle ABC = 42^\\circ\\).\n\n(a) (2 points) How many degrees is angle \\( BIX \\)?\n\n(b) (2 points) How many degrees is angle \\( BCA \\)?","scores":[0.0,0.0,0.0,0.0,0.0],"deltas_vs_base":[0.0,0.0,0.0,0.0,0.0],"final_delta":0.0,"flipped_solved":false,"flipped_regressed":false}]}</script>
+  <script>
+    (function () {
+      var dataEl = document.getElementById("tinker-series-data");
+      var S = JSON.parse(dataEl.textContent || "{}");
+      var pts = S.points || [];
+      var tasks = S.tasks || [];
+
+      var root = document.documentElement;
+      var themeBtn = document.getElementById("theme-toggle");
+      try {
+        var saved = localStorage.getItem("tinker-inspect-theme");
+        if (saved === "dark" || saved === "light") root.setAttribute("data-theme", saved);
+      } catch (e) {}
+      function isDark() {
+        var attr = root.getAttribute("data-theme");
+        if (attr === "dark") return true;
+        if (attr === "light") return false;
+        var mq = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)");
+        return !!(mq && mq.matches);
+      }
+      function syncThemeBtn() {
+        themeBtn.textContent = isDark() ? "Light mode" : "Dark mode";
+      }
+      syncThemeBtn();
+      themeBtn.addEventListener("click", function () {
+        var next = isDark() ? "light" : "dark";
+        root.setAttribute("data-theme", next);
+        try { localStorage.setItem("tinker-inspect-theme", next); } catch (e) {}
+        syncThemeBtn();
+        renderCharts();
+      });
+
+      function esc(s) {
+        return String(s == null ? "" : s)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+      function fmtPct(v) { return (v * 100).toFixed(1) + "%"; }
+      function fmtDelta(v) { return (v >= 0 ? "+" : "") + (v * 100).toFixed(1) + " pp"; }
+
+      document.getElementById("page-title").textContent = S.title || "Eval Series";
+      document.getElementById("page-sub").textContent =
+        S.num_tasks + " paired tasks across " + pts.length +
+        " checkpoints · primary metric: " + S.primary_metric;
+
+      var basePt = pts[0];
+      var bestPt = pts.reduce(function (a, b) {
+        return b.primary_mean > a.primary_mean ? b : a;
+      }, basePt);
+      var lastPt = pts[pts.length - 1];
+      var flippedUp = tasks.filter(function (t) { return t.flipped_solved; }).length;
+      var flippedDn = tasks.filter(function (t) { return t.flipped_regressed; }).length;
+
+      var turnDelta = (bestPt.mean_turns - basePt.mean_turns) / Math.max(basePt.mean_turns, 1e-6);
+      var tokSub = "turns: " + basePt.mean_turns.toFixed(2) + " -> " + bestPt.mean_turns.toFixed(2);
+      var tokVal = (turnDelta * 100).toFixed(1) + "% turns";
+      if (basePt.mean_output_tokens != null && bestPt.mean_output_tokens != null) {
+        var denomT = Math.max(basePt.mean_output_tokens, 1e-6);
+        var pctT = ((bestPt.mean_output_tokens - basePt.mean_output_tokens) / denomT) * 100;
+        tokVal = (pctT >= 0 ? "+" : "") + pctT.toFixed(1) + "%";
+        tokSub =
+          basePt.mean_output_tokens.toFixed(0) + " -> " +
+          bestPt.mean_output_tokens.toFixed(0) + " out tokens";
+      }
+
+      var kpiItems = [
+        {
+          label: "Paired Tasks",
+          val: String(S.num_tasks),
+          sub: pts.length + " checkpoints · metric: " + S.primary_metric
+        },
+        {
+          label: "Baseline -> Best (" + bestPt.label + ")",
+          val: fmtPct(basePt.primary_mean) + " -> " + fmtPct(bestPt.primary_mean),
+          sub: fmtDelta(bestPt.delta_vs_base) +
+            " [" + fmtDelta(bestPt.ci_low) + ", " + fmtDelta(bestPt.ci_high) + "]"
+        },
+        {
+          label: "Output Efficiency (Base -> Best)",
+          val: tokVal,
+          sub: tokSub
+        },
+        {
+          label: "Task Flips (First -> Last)",
+          val: "+" + flippedUp + " / -" + flippedDn,
+          sub: lastPt.label + " vs " + basePt.label
+        }
+      ];
+      document.getElementById("kpi-strip").innerHTML = kpiItems.map(function (k) {
+        return '<div class="kpi"><div class="kpi-label">' + esc(k.label) +
+          '</div><div class="kpi-val">' + esc(k.val) +
+          '</div><div class="kpi-sub">' + esc(k.sub) + '</div></div>';
+      }).join("");
+
+      function renderCharts() {
+        var fg = isDark() ? "#cbd5e1" : "#334155";
+        var grid = isDark() ? "#1f2937" : "#e2e8f0";
+        var bg = isDark() ? "#0f172a" : "#f8fafc";
+        var accent = isDark() ? "#60a5fa" : "#2563eb";
+        var good = isDark() ? "#34d399" : "#059669";
+
+        var W = 520, H = 260, pL = 52, pR = 24, pT = 22, pB = 52;
+        var ys = [];
+        pts.forEach(function (p, i) {
+          ys.push(p.primary_mean);
+          if (i > 0) {
+            ys.push(basePt.primary_mean + p.ci_low);
+            ys.push(basePt.primary_mean + p.ci_high);
+          }
+        });
+        var yMin = Math.max(0, Math.min.apply(null, ys) - 0.08);
+        var yMax = Math.min(1.02, Math.max.apply(null, ys) + 0.08);
+        if (yMax - yMin < 0.15) {
+          yMin = Math.max(0, yMin - 0.08);
+          yMax = Math.min(1.02, yMax + 0.08);
+        }
+        function xp(i) {
+          if (pts.length <= 1) return (pL + W - pR) / 2;
+          return pL + (W - pL - pR) * (i / (pts.length - 1));
+        }
+        function yp(v) {
+          return pT + (H - pT - pB) * (1 - (v - yMin) / Math.max(yMax - yMin, 1e-6));
+        }
+        var svg1 = ['<svg viewBox="0 0 ' + W + ' ' + H + '">'];
+        svg1.push(
+          '<rect x="' + pL + '" y="' + pT + '" width="' + (W - pL - pR) +
+          '" height="' + (H - pT - pB) + '" fill="' + bg + '" stroke="' + grid + '"/>'
+        );
+        for (var g = 0; g <= 4; g++) {
+          var v = yMin + (yMax - yMin) * (g / 4);
+          var yy = yp(v);
+          svg1.push(
+            '<line x1="' + pL + '" y1="' + yy.toFixed(1) + '" x2="' + (W - pR) +
+            '" y2="' + yy.toFixed(1) + '" stroke="' + grid + '" stroke-dasharray="3,3"/>'
+          );
+          svg1.push(
+            '<text x="' + (pL - 7) + '" y="' + (yy + 4).toFixed(1) +
+            '" text-anchor="end" font-size="10.5" fill="' + fg + '">' +
+            (v * 100).toFixed(0) + '%</text>'
+          );
+        }
+        var by = yp(basePt.primary_mean);
+        svg1.push(
+          '<line x1="' + pL + '" y1="' + by.toFixed(1) + '" x2="' + (W - pR) +
+          '" y2="' + by.toFixed(1) + '" stroke="#94a3b8" stroke-dasharray="5,4"/>'
+        );
+        var linePts = pts.map(function (p, i) {
+          return xp(i).toFixed(1) + "," + yp(p.primary_mean).toFixed(1);
+        }).join(" ");
+        svg1.push(
+          '<polyline points="' + linePts + '" fill="none" stroke="' + accent +
+          '" stroke-width="2.4"/>'
+        );
+        pts.forEach(function (p, i) {
+          var cx = xp(i), cy = yp(p.primary_mean);
+          if (i > 0) {
+            var lo = yp(Math.max(yMin, basePt.primary_mean + p.ci_low));
+            var hi = yp(Math.min(yMax, basePt.primary_mean + p.ci_high));
+            svg1.push(
+              '<line x1="' + cx.toFixed(1) + '" y1="' + lo.toFixed(1) +
+              '" x2="' + cx.toFixed(1) + '" y2="' + hi.toFixed(1) +
+              '" stroke="' + accent + '" stroke-width="1.5" opacity="0.6"/>'
+            );
+            svg1.push(
+              '<line x1="' + (cx - 4).toFixed(1) + '" y1="' + lo.toFixed(1) +
+              '" x2="' + (cx + 4).toFixed(1) + '" y2="' + lo.toFixed(1) +
+              '" stroke="' + accent + '" stroke-width="1.3" opacity="0.6"/>'
+            );
+            svg1.push(
+              '<line x1="' + (cx - 4).toFixed(1) + '" y1="' + hi.toFixed(1) +
+              '" x2="' + (cx + 4).toFixed(1) + '" y2="' + hi.toFixed(1) +
+              '" stroke="' + accent + '" stroke-width="1.3" opacity="0.6"/>'
+            );
+          }
+          var dotCol = p === bestPt ? good : accent;
+          svg1.push(
+            '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) +
+            '" r="5" fill="' + dotCol + '" stroke="#ffffff" stroke-width="1.5"/>'
+          );
+          svg1.push(
+            '<text x="' + cx.toFixed(1) + '" y="' + (cy - 9).toFixed(1) +
+            '" text-anchor="middle" font-size="10.5" font-weight="700" fill="' + fg + '">' +
+            fmtPct(p.primary_mean) + '</text>'
+          );
+          var shortLbl = p.label.length > 14 ? p.label.slice(0, 13) + "…" : p.label;
+          svg1.push(
+            '<text x="' + cx.toFixed(1) + '" y="' + (H - 18) +
+            '" text-anchor="middle" font-size="10" fill="' + fg + '">' +
+            esc(shortLbl) + '</text>'
+          );
+        });
+        svg1.push("</svg>");
+        document.getElementById("chart-progress").innerHTML = svg1.join("");
+
+        var tokPts = pts.filter(function (p) { return p.mean_output_tokens != null; });
+        var useTok = tokPts.length >= 2;
+        document.getElementById("pareto-title").textContent = useTok
+          ? "Accuracy vs Mean Output Tokens (Pareto)"
+          : "Accuracy vs Mean Turns (Pareto)";
+        var pPts = useTok ? tokPts : pts;
+        var xs = pPts.map(function (p) {
+          return useTok ? p.mean_output_tokens : p.mean_turns;
+        });
+        var xMin = Math.min.apply(null, xs), xMax = Math.max.apply(null, xs);
+        var xSpan = Math.max(xMax - xMin, 1);
+        xMin = Math.max(0, xMin - 0.15 * xSpan);
+        xMax = xMax + 0.2 * xSpan;
+        function xq(val) {
+          return pL + (W - pL - pR) * ((val - xMin) / Math.max(xMax - xMin, 1e-6));
+        }
+
+        var svg2 = ['<svg viewBox="0 0 ' + W + ' ' + H + '">'];
+        svg2.push(
+          '<rect x="' + pL + '" y="' + pT + '" width="' + (W - pL - pR) +
+          '" height="' + (H - pT - pB) + '" fill="' + bg + '" stroke="' + grid + '"/>'
+        );
+        for (var g2 = 0; g2 <= 4; g2++) {
+          var v2 = yMin + (yMax - yMin) * (g2 / 4);
+          var yy2 = yp(v2);
+          svg2.push(
+            '<line x1="' + pL + '" y1="' + yy2.toFixed(1) + '" x2="' + (W - pR) +
+            '" y2="' + yy2.toFixed(1) + '" stroke="' + grid + '" stroke-dasharray="3,3"/>'
+          );
+          svg2.push(
+            '<text x="' + (pL - 7) + '" y="' + (yy2 + 4).toFixed(1) +
+            '" text-anchor="end" font-size="10.5" fill="' + fg + '">' +
+            (v2 * 100).toFixed(0) + '%</text>'
+          );
+          var xv = xMin + (xMax - xMin) * (g2 / 4);
+          var xx = xq(xv);
+          svg2.push(
+            '<line x1="' + xx.toFixed(1) + '" y1="' + pT + '" x2="' + xx.toFixed(1) +
+            '" y2="' + (H - pB) + '" stroke="' + grid + '" stroke-dasharray="3,3"/>'
+          );
+          svg2.push(
+            '<text x="' + xx.toFixed(1) + '" y="' + (H - pB + 16) +
+            '" text-anchor="middle" font-size="10.5" fill="' + fg + '">' +
+            (useTok ? xv.toFixed(0) : xv.toFixed(1)) + '</text>'
+          );
+        }
+        var sortedP = pPts.slice().sort(function (a, b) {
+          var xa = useTok ? a.mean_output_tokens : a.mean_turns;
+          var xb = useTok ? b.mean_output_tokens : b.mean_turns;
+          return xa !== xb ? xa - xb : b.primary_mean - a.primary_mean;
+        });
+        var frontier = [], maxY = -1;
+        sortedP.forEach(function (p) {
+          if (p.primary_mean > maxY + 1e-9) { frontier.push(p); maxY = p.primary_mean; }
+        });
+        if (frontier.length >= 2) {
+          var fStr = frontier.map(function (p) {
+            var xval = useTok ? p.mean_output_tokens : p.mean_turns;
+            return xq(xval).toFixed(1) + "," + yp(p.primary_mean).toFixed(1);
+          }).join(" ");
+          svg2.push(
+            '<polyline points="' + fStr + '" fill="none" stroke="' + good +
+            '" stroke-width="2" stroke-dasharray="5,3"/>'
+          );
+        }
+        var colors = ["#64748b", "#2563eb", "#7c3aed", "#059669", "#d97706", "#db2777"];
+        pPts.forEach(function (p, i) {
+          var xval = useTok ? p.mean_output_tokens : p.mean_turns;
+          var cx = xq(xval), cy = yp(p.primary_mean);
+          var col = colors[i % colors.length];
+          svg2.push(
+            '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) +
+            '" r="5.5" fill="' + col + '" stroke="#ffffff" stroke-width="1.5"/>'
+          );
+          var anchor = cx > W - pR - 95 ? "end" : "start";
+          var dx = anchor === "end" ? -8 : 8;
+          var dy = i % 2 === 0 ? -7 : 14;
+          svg2.push(
+            '<text x="' + (cx + dx).toFixed(1) + '" y="' + (cy + dy).toFixed(1) +
+            '" text-anchor="' + anchor + '" font-size="10.5" font-weight="600" fill="' +
+            col + '">' + esc(p.label) + '</text>'
+          );
+        });
+        var xAxisLbl = useTok ? "Mean Output Tokens (lower is faster)" : "Mean Turns";
+        svg2.push(
+          '<text x="' + ((pL + W - pR) / 2).toFixed(1) + '" y="' + (H - 8) +
+          '" text-anchor="middle" font-size="10.5" fill="' + fg + '">' + xAxisLbl + '</text>'
+        );
+        svg2.push("</svg>");
+        document.getElementById("chart-pareto").innerHTML = svg2.join("");
+      }
+      renderCharts();
+
+      var hasFmt = pts.some(function (p) {
+        return p.metric_means && p.metric_means.format_ok != null;
+      });
+      var hasTok = pts.some(function (p) { return p.mean_output_tokens != null; });
+      var hasTool = pts.some(function (p) { return p.used_tool_rate != null; });
+      var hasErr = pts.some(function (p) { return p.mean_tool_errors != null; });
+
+      var thead =
+        "<thead><tr><th>#</th><th>Checkpoint / Method</th><th class='num'>" +
+        esc(S.primary_metric) +
+        "</th><th class='num'>Delta vs Base</th><th class='num'>95% CI</th>" +
+        "<th class='num'>W/R/T</th>" +
+        (hasFmt ? "<th class='num'>Format OK</th>" : "") +
+        (hasTok ? "<th class='num'>Out Tokens</th>" : "") +
+        (hasTool ? "<th class='num'>Tool Rate</th>" : "") +
+        (hasErr ? "<th class='num'>Tool Err</th>" : "") +
+        "<th class='num'>Turns</th></tr></thead>";
+
+      var tbody = "<tbody>" + pts.map(function (p, i) {
+        var deltaCell = "<span class='badge neu'>base</span>";
+        var ciCell = "—";
+        var wrtCell = "—";
+        if (i > 0) {
+          var cls = p.ci_low > 0 ? "pos" : (p.ci_high < 0 ? "neg" : "neu");
+          deltaCell = "<span class='badge " + cls + "'>" + fmtDelta(p.delta_vs_base) + "</span>";
+          ciCell = "[" + fmtDelta(p.ci_low) + ", " + fmtDelta(p.ci_high) + "]";
+          wrtCell = p.wins_vs_base + "/" + p.regressions_vs_base + "/" + p.ties_vs_base;
+        }
+        var fmtVal = p.metric_means && p.metric_means.format_ok != null
+          ? fmtPct(p.metric_means.format_ok) : "—";
+        var tokCell = p.mean_output_tokens != null ? p.mean_output_tokens.toFixed(1) : "—";
+        var toolCell = p.used_tool_rate != null ? fmtPct(p.used_tool_rate) : "—";
+        var errCell = p.mean_tool_errors != null ? p.mean_tool_errors.toFixed(2) : "—";
+        return "<tr><td class='num'>" + (i + 1) + "</td><td><strong>" + esc(p.label) +
+          "</strong></td>" +
+          "<td class='num'>" + fmtPct(p.primary_mean) + "</td>" +
+          "<td class='num'>" + deltaCell + "</td>" +
+          "<td class='num'>" + ciCell + "</td>" +
+          "<td class='num'>" + wrtCell + "</td>" +
+          (hasFmt ? "<td class='num'>" + fmtVal + "</td>" : "") +
+          (hasTok ? "<td class='num'>" + tokCell + "</td>" : "") +
+          (hasTool ? "<td class='num'>" + toolCell + "</td>" : "") +
+          (hasErr ? "<td class='num'>" + errCell + "</td>" : "") +
+          "<td class='num'>" + p.mean_turns.toFixed(2) + "</td></tr>";
+      }).join("") + "</tbody>";
+      document.getElementById("metrics-table").innerHTML = thead + tbody;
+
+      var activeFilter = "all";
+      var expanded = {};
+      var searchInput = document.getElementById("task-search");
+
+      function scoreStyle(v) {
+        if (v >= 0.99) return "background:var(--pass-bg);color:var(--pass);";
+        if (v <= 0.01) return "background:var(--fail-bg);color:var(--fail);";
+        return "background:var(--warn-bg);color:var(--warn);";
+      }
+
+      function renderHeatmap() {
+        var q = (searchInput.value || "").trim().toLowerCase();
+        var filtered = tasks.filter(function (t) {
+          if (activeFilter === "solved" && !t.flipped_solved) return false;
+          if (activeFilter === "regressed" && !t.flipped_regressed) return false;
+          if (activeFilter === "hard") {
+            if (!t.scores.every(function (s) { return s < 0.5; })) return false;
+          }
+          if (activeFilter === "always_solved") {
+            if (!t.scores.every(function (s) { return s >= 0.5; })) return false;
+          }
+          if (q) {
+            var hay = (String(t.task_id || t.task_key) + " " + (t.prompt || "")).toLowerCase();
+            if (hay.indexOf(q) === -1) return false;
+          }
+          return true;
+        });
+
+        var hHead = "<thead><tr><th>Task</th><th>Prompt</th>" +
+          pts.map(function (p) { return "<th class='num'>" + esc(p.label) + "</th>"; }).join("") +
+          "<th class='num'>Final &Delta;</th></tr></thead>";
+
+        var colSpan = pts.length + 3;
+        var hRows = filtered.map(function (t) {
+          var key = t.task_key;
+          var dCls = t.final_delta > 1e-6 ? "pos" : (t.final_delta < -1e-6 ? "neg" : "neu");
+          var dTxt = (t.final_delta >= 0 ? "+" : "") + t.final_delta.toFixed(2);
+          var scoreCells = t.scores.map(function (s) {
+            return "<td class='num'><span class='cell' style='" + scoreStyle(s) + "'>" +
+              s.toFixed(2) + "</span></td>";
+          }).join("");
+          var mainRow = "<tr class='task-row' data-tk='" + esc(key) + "'>" +
+            "<td class='mono'>" + esc(t.task_id != null ? t.task_id : t.task_key) + "</td>" +
+            "<td><div class='prompt-preview'>" + esc(t.prompt) + "</div></td>" +
+            scoreCells +
+            "<td class='num'><span class='badge " + dCls + "'>" + dTxt + "</span></td></tr>";
+          if (!expanded[key]) return mainRow;
+          return mainRow + "<tr><td colspan='" + colSpan + "'><div class='prompt-expand'>" +
+            esc(t.prompt) + "</div></td></tr>";
+        }).join("");
+
+        var emptyRow = "<tr><td colspan='" + colSpan +
+          "' style='text-align:center;color:var(--muted)'>No matching tasks</td></tr>";
+        var tbl = document.getElementById("heatmap-table");
+        tbl.innerHTML = hHead + "<tbody>" + (hRows || emptyRow) + "</tbody>";
+        tbl.querySelectorAll("tr.task-row").forEach(function (tr) {
+          tr.addEventListener("click", function () {
+            var tk = tr.getAttribute("data-tk");
+            expanded[tk] = !expanded[tk];
+            renderHeatmap();
+          });
+        });
+      }
+
+      document.querySelectorAll("[data-filter]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          activeFilter = btn.getAttribute("data-filter");
+          document.querySelectorAll("[data-filter]").forEach(function (b) {
+            b.classList.remove("active");
+          });
+          btn.classList.add("active");
+          renderHeatmap();
+        });
+      });
+      searchInput.addEventListener("input", renderHeatmap);
+      renderHeatmap();
+    })();
+  </script>
+</body>
+</html>

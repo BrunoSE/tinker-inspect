@@ -89,3 +89,36 @@ def test_cli_inspect_diff_compare_and_strict(tmp_path: Path, capsys):
     rc_cmp = main(["compare", str(run_ok), str(run_bad), "--out", str(cmp_out), "--no-color"])
     assert rc_cmp == 0
     assert cmp_out.is_file()
+
+    # Series subcommand (with label=path syntax)
+    ser_out = tmp_path / "series.html"
+    rc_ser = main(
+        [
+            "series",
+            f"Base={base_p}",
+            f"Final={final_p}",
+            "--out",
+            str(ser_out),
+            "--sanitize-paths",
+            "--no-color",
+        ]
+    )
+    assert rc_ser == 0
+    assert ser_out.is_file()
+
+    # Watch subcommand (bounded polls + fail-fast)
+    rc_w_ok = main(["watch", str(run_ok), "--interval", "0.01", "--max-polls", "1", "--no-color"])
+    assert rc_w_ok == 0
+    rc_w_bad = main(
+        [
+            "watch",
+            str(run_bad),
+            "--interval",
+            "0.01",
+            "--max-polls",
+            "1",
+            "--fail-fast",
+            "--no-color",
+        ]
+    )
+    assert rc_w_bad == 2

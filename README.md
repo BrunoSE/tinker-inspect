@@ -1,6 +1,8 @@
 # tinker-inspect
 
-Zero-dependency CLI and single-file HTML diagnostics viewer for **Tinker RL** (`tinker-cookbook`) training runs and paired evaluation diffs (`verifiers v1`, legacy `vf-eval`, `git_tool_rl` / native JSONL, or rollout summaries).
+[![CI](https://github.com/BrunoSE/tinker-inspect/actions/workflows/ci.yml/badge.svg)](https://github.com/BrunoSE/tinker-inspect/actions/workflows/ci.yml)
+
+Zero-dependency CLI and single-file HTML diagnostics viewer for **Tinker RL** (`tinker-cookbook`) training runs, live run monitoring (`watch`), paired evaluation diffs (`diff`), and multi-checkpoint progression reports (`series`).
 
 Point it at any Tinker `log_path` directory (`metrics.jsonl`, `config.json`, `timing_spans.jsonl`, `checkpoints.jsonl`, `iteration_*/train_rollout_summaries.jsonl`) and get an instant terminal health check plus a self-contained, zero-CDN `.html` report you can open locally, attach to a PR, or host on GitHub Pages.
 
@@ -10,7 +12,8 @@ Browse the interactive showcase at **[brunose.github.io/tinker-inspect](https://
 
 | Demo | Local / Repo | What it reveals |
 |---|---|---|
-| [Inkling-2-Mini Multi-Turn Python TIR RL → OOD `1/8`](https://brunose.github.io/tinker-inspect/demo_inkling2_polaris_tir_rl_ood18.html) | [`docs/demo_inkling2_polaris_tir_rl_ood18.html`](docs/demo_inkling2_polaris_tir_rl_ood18.html) | **+15.6 pp** multi-turn `run_python` TIR RL gain on OOD Olympiad `1/8` (`31.2% → 46.9%`, 95% CI `[+6.2, +26.0]`; `+21.9 pp` vs text-only base), `-34%` tokens, `-36%` tool errors, `55%` prefix-cacheable, exact KL0, `$0.00`. |
+| [5-Point OOD Olympiad `1/8` Progression (`series`)](https://brunose.github.io/tinker-inspect/series_polaris18_ladder.html) | [`docs/series_polaris18_ladder.html`](docs/series_polaris18_ladder.html) | Full 48-task paired progression across Base CoT (`25.0%`) → Base TIR (`31.2%`) → Step-16 CoT RL (`34.4%`) → Step-32 CoT RL (`37.5%`) → **16-Step Multi-Turn TIR RL (`46.9%`, `+21.9 pp` `[+11.5, +32.3]`, `-38%` tokens)** with accuracy/Pareto charts & per-task heatmap. |
+| [Inkling-2-Mini Multi-Turn Python TIR RL → OOD `1/8`](https://brunose.github.io/tinker-inspect/demo_inkling2_polaris_tir_rl_ood18.html) | [`docs/demo_inkling2_polaris_tir_rl_ood18.html`](docs/demo_inkling2_polaris_tir_rl_ood18.html) | **+15.6 pp** multi-turn `run_python` TIR RL gain on OOD Olympiad `1/8` (`31.2% → 46.9%`, 95% CI `[+6.2, +26.0]`; `+21.9 pp` vs text-only base), `-34%` tokens, `-36%` tool errors, `55%` prefix-cacheable, Multi-Turn Tool & Cache diagnostics, exact KL0, `$0.00`. |
 | [Inkling-2-Mini Step-32 RL → OOD Olympiad `1/8`](https://brunose.github.io/tinker-inspect/demo_inkling2_polaris_rl_v3_step32_ood18.html) | [`docs/demo_inkling2_polaris_rl_v3_step32_ood18.html`](docs/demo_inkling2_polaris_rl_v3_step32_ood18.html) | **+12.5 pp** zero-shot OOD Olympiad `1/8` transfer (`25.0% → 37.5%`, 95% CI `[+2.1, +22.9]`, `13W/3R/32T`, `-9.8%` tokens) at exact KL0 (`0.000000`) and `$0.00`. |
 | [Inkling-2-Mini Competition Math RL (Run #2)](https://brunose.github.io/tinker-inspect/demo_inkling2_polaris_rl_v2.html) | [`docs/demo_inkling2_polaris_rl_v2.html`](docs/demo_inkling2_polaris_rl_v2.html) | **+10.9 pp** held-out Polaris gain (`56.2% → 67.2%`, 95% CI `[+2.3, +20.3]`) on `Inkling-2-Mini:peft:65536:free` with exact KL0 (`0.000000`) at `$0.00`. |
 | [Diagnostic-Driven Iteration (Run #1 vs Run #2)](https://brunose.github.io/tinker-inspect/compare_polaris_v1_vs_v2.html) | [`docs/compare_polaris_v1_vs_v2.html`](docs/compare_polaris_v1_vs_v2.html) | Side-by-side comparison showing how acting on `tinker-inspect`'s truncation alert cut `max_tokens` cutoffs `61.3% → 19.8%` and all-bad groups `109 → 25`. |
@@ -92,6 +95,14 @@ tinker-inspect diff base_heldout.jsonl final_heldout.jsonl --sanitize-paths --ou
 
 # Overlay two Tinker RL training runs side-by-side
 tinker-inspect compare run_a/ run_b/ --sanitize-paths --out compare.html
+
+# Compare 3+ checkpoints or methods as a paired progression curve + Pareto + task heatmap
+tinker-inspect series \
+  "Base CoT=base.jsonl" "Step 16=step16.jsonl" "Step 32=step32.jsonl" "TIR RL=tir.jsonl" \
+  --title "OOD Olympiad Progression" --sanitize-paths --out series.html
+
+# Live-monitor an active Tinker RL run and exit 2 immediately on KL0 drift or health failure
+tinker-inspect watch /path/to/active/log_dir --interval 5 --fail-fast
 ```
 
 ### Cost estimation

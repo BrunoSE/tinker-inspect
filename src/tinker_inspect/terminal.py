@@ -107,6 +107,34 @@ def render_run_terminal(
             cost_line += f"  [{t.pricing_source}]"
         lines.append(cost_line)
 
+    # Multi-turn tool & cache breakdown
+    if diag.tools is not None:
+        td = diag.tools
+        tool_parts: list[str] = []
+        if td.mean_turns_per_episode is not None:
+            tool_parts.append(f"turns/ep={td.mean_turns_per_episode:.2f}")
+        if td.used_tool_rate is not None:
+            tool_parts.append(f"used_tool={td.used_tool_rate:.0%}")
+        if td.mean_tool_calls is not None:
+            tool_parts.append(f"calls/ep={td.mean_tool_calls:.2f}")
+        if td.mean_tool_errors is not None:
+            tool_parts.append(f"errors/ep={td.mean_tool_errors:.2f}")
+        if td.hit_max_turns_rate is not None:
+            tool_parts.append(f"max_turns={td.hit_max_turns_rate:.1%}")
+        if td.hit_max_tokens_rate is not None:
+            tool_parts.append(f"max_tokens={td.hit_max_tokens_rate:.1%}")
+        cache_pts = [
+            r["cache_hit_frac"]
+            for r in td.per_step_cache_hit
+            if r.get("cache_hit_frac") is not None
+        ]
+        if cache_pts:
+            tool_parts.append(f"cache_hit={cache_pts[0]:.0%}->{cache_pts[-1]:.0%}")
+        if tool_parts:
+            lines.append("")
+            lines.append(_c("Multi-Turn Tool & Cache", "bold", color=color))
+            lines.append("  " + "  |  ".join(tool_parts))
+
     # First vs Last step summary
     if run.steps:
         first_s, last_s = run.steps[0], run.steps[-1]

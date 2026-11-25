@@ -200,3 +200,35 @@ def test_diff_evals_prompt_fallback_pairing(tmp_path: Path):
     assert success.wins == 1
     assert success.ties == 1
     assert success.regressions == 0
+
+
+def test_analyze_run_multiturn_tool_diagnostics_and_cache_series(tmp_path: Path):
+    import json
+
+    run_dir = make_synthetic_run(tmp_path / "run_tir", num_steps=4, native_cost=True)
+    mpath = run_dir / "metrics.jsonl"
+    rows = [json.loads(line) for line in mpath.read_text().splitlines() if line.strip()]
+    for i, r in enumerate(rows):
+        r["env/all/used_python"] = 0.55
+        r["env/all/tool_calls_count"] = 1.10
+        r["env/all/tool_errors"] = 0.15 if i < 2 else 0.10
+        r["env/all/hit_max_turns"] = 0.08
+    mpath.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+
+    diag = analyze_run(load_run(run_dir))
+    assert diag.tools is not None
+    assert diag.tools.used_tool_rate == pytest.approx(0.55)
+    assert diag.tools.mean_tool_calls == pytest.approx(1.10)
+    assert diag.tools.mean_tool_errors == pytest.approx(0.125)
+    assert diag.tools.hit_max_turns_rate == pytest.approx(0.08)
+    assert len(diag.tools.per_step_cache_hit) == 4
+    tool_f = next(f for f in diag.findings if f.check_id == "tool_use")
+    assert tool_f.severity == "pass"
+
+    # High tool errors should trigger WARN
+    for r in rows:
+        r["env/all/tool_errors"] = 0.65
+    mpath.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    diag_warn = analyze_run(load_run(run_dir))
+    tool_f_warn = next(f for f in diag_warn.findings if f.check_id == "tool_use")
+    assert tool_f_warn.severity == "warn"
