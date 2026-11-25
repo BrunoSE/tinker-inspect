@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>tinker-inspect — Live Interactive Demos</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --surface-2: #f1f5f9;
+      --text: #0f172a;
+      --muted: #475569;
+      --border: #e2e8f0;
+      --accent: #2563eb;
+      --accent-soft: #eff6ff;
+      --pass: #059669;
+      --pass-bg: #ecfdf5;
+      --warn: #d97706;
+      --warn-bg: #fffbeb;
+      --code-bg: #0f172a;
+      --code-fg: #e2e8f0;
+      --shadow: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #0b1120;
+        --surface: #111827;
+        --surface-2: #1e293b;
+        --text: #f1f5f9;
+        --muted: #94a3b8;
+        --border: #1f2937;
+        --accent: #60a5fa;
+        --accent-soft: #172554;
+        --pass: #34d399;
+        --pass-bg: #064e3b;
+        --warn: #fbbf24;
+        --warn-bg: #451a03;
+        --code-bg: #020617;
+        --code-fg: #e2e8f0;
+        --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #0b1120;
+      --surface: #111827;
+      --surface-2: #1e293b;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --border: #1f2937;
+      --accent: #60a5fa;
+      --accent-soft: #172554;
+      --pass: #34d399;
+      --pass-bg: #064e3b;
+      --warn: #fbbf24;
+      --warn-bg: #451a03;
+      --code-bg: #020617;
+      --code-fg: #e2e8f0;
+      --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrap {
+      max-width: 1020px;
+      margin: 0 auto;
+      padding: 2.25rem 1.25rem 3.5rem;
+    }
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1.75rem;
+    }
+    .brand h1 {
+      margin: 0;
+      font-size: 1.9rem;
+      letter-spacing: -0.025em;
+      font-weight: 800;
+    }
+    .brand p {
+      margin: 0.4rem 0 0;
+      color: var(--muted);
+      max-width: 640px;
+      font-size: 0.98rem;
+    }
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.48rem 0.85rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      text-decoration: none;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: var(--shadow);
+    }
+    .btn:hover { border-color: var(--accent); color: var(--accent); }
+    .install-box {
+      background: var(--code-bg);
+      color: var(--code-fg);
+      border-radius: 10px;
+      padding: 0.9rem 1.1rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.84rem;
+      overflow-x: auto;
+      margin-bottom: 2rem;
+      border: 1px solid var(--border);
+    }
+    .install-box .comment { color: #64748b; }
+    h2 {
+      font-size: 1.2rem;
+      font-weight: 700;
+      margin: 0 0 0.9rem;
+      letter-spacing: -0.015em;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2.25rem;
+    }
+    .card {
+      display: flex;
+      flex-direction: column;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.15rem 1.2rem;
+      text-decoration: none;
+      color: inherit;
+      box-shadow: var(--shadow);
+      transition: transform 0.12s ease, border-color 0.12s ease;
+    }
+    .card:hover {
+      transform: translateY(-2px);
+      border-color: var(--accent);
+    }
+    .card-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      margin-bottom: 0.55rem;
+    }
+    .pill {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 0.18rem 0.5rem;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+    .pill.pass { background: var(--pass-bg); color: var(--pass); }
+    .pill.warn { background: var(--warn-bg); color: var(--warn); }
+    .card h3 {
+      margin: 0 0 0.45rem;
+      font-size: 1.03rem;
+      line-height: 1.3;
+    }
+    .card p {
+      margin: 0 0 0.9rem;
+      color: var(--muted);
+      font-size: 0.89rem;
+      flex: 1;
+    }
+    .stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      font-size: 0.77rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    .stat {
+      background: var(--surface-2);
+      padding: 0.2rem 0.48rem;
+      border-radius: 6px;
+      color: var(--text);
+    }
+    .chart-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.2rem;
+      box-shadow: var(--shadow);
+      margin-bottom: 2rem;
+    }
+    .chart-card p {
+      margin: 0 0 0.9rem;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    .chart-frame {
+      background: #ffffff;
+      border-radius: 8px;
+      padding: 0.5rem;
+      border: 1px solid var(--border);
+      overflow-x: auto;
+    }
+    .chart-frame img {
+      display: block;
+      width: 100%;
+      max-width: 980px;
+      height: auto;
+      margin: 0 auto;
+    }
+    footer {
+      border-top: 1px solid var(--border);
+      padding-top: 1.25rem;
+      color: var(--muted);
+      font-size: 0.84rem;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="brand">
+        <h1>tinker-inspect</h1>
+        <p>
+          Zero-dependency CLI and single-file HTML diagnostics viewer for
+          <strong>Tinker RL</strong> (<code>tinker-cookbook</code>) training runs and paired evaluation diffs.
+        </p>
+      </div>
+      <div class="actions">
+        <a class="btn" href="https://github.com/BrunoSE/tinker-inspect">GitHub Repo</a>
+        <button class="btn" id="theme-toggle" type="button" aria-label="Toggle color theme">Theme</button>
+      </div>
+    </header>
+
+    <div class="install-box"><span class="comment"># Zero runtime dependencies (Python 3.11+ stdlib only)</span>
+uvx --from git+https://github.com/BrunoSE/tinker-inspect tinker-inspect /path/to/tinker/log_dir</div>
+
+    <h2>Live Interactive Demos</h2>
+    <div class="grid">
+      <a class="card" href="demo_inkling2_polaris_rl_v2.html">
+        <div class="card-top">
+          <span class="pill pass">Run + Eval Diff</span>
+          <span class="pill">$0.00 Free</span>
+        </div>
+        <h3>Inkling-2-Mini Competition Math RL (Run #2)</h3>
+        <p>
+          16 steps of free-tier Polaris RL on <code>Inkling-2-Mini:peft:65536:free</code> delivering
+          a statistically significant <strong>+10.9 pp</strong> held-out gain (56.2% &rarr; 67.2%)
+          at exact KL0 (0.000000) and $0.00 total cost.
+        </p>
+        <div class="stats">
+          <span class="stat">+10.9 pp [+2.3, +20.3]</span>
+          <span class="stat">KL0 = 0.000000</span>
+          <span class="stat">2.37M sampled</span>
+        </div>
+      </a>
+
+      <a class="card" href="compare_polaris_v1_vs_v2.html">
+        <div class="card-top">
+          <span class="pill">Compare Mode</span>
+          <span class="pill pass">Run #1 vs #2</span>
+        </div>
+        <h3>Diagnostic-Driven RL Iteration (v1 &rarr; v2)</h3>
+        <p>
+          Side-by-side overlay showing how acting on <code>tinker-inspect</code>'s truncation and
+          all-bad group alerts (61.3% max_tokens hits, 109/192 all-bad) cut truncation to 19.8%
+          and turned a flat run into +10.9 pp.
+        </p>
+        <div class="stats">
+          <span class="stat">trunc 61.3% &rarr; 19.8%</span>
+          <span class="stat">all-bad 109 &rarr; 25</span>
+          <span class="stat">16 steps each</span>
+        </div>
+      </a>
+
+      <a class="card" href="demo_full25.html">
+        <div class="card-top">
+          <span class="pill">Multi-Turn RL</span>
+          <span class="pill warn">71% Dropped</span>
+        </div>
+        <h3>Qwen3.5-4B Multi-Turn Git Tool-Use RL (25 Steps)</h3>
+        <p>
+          Reconstructs <strong>3.45&times;</strong> multi-turn prefill amplification (~76% prefix-cacheable),
+          surfaces a hidden 71% constant-reward group drop rate (269 all-good), timing Gantt, and
+          +8.2 pp held-out improvement.
+        </p>
+        <div class="stats">
+          <span class="stat">prefill 3.45&times;</span>
+          <span class="stat">71% const drop</span>
+          <span class="stat">+8.2 pp heldout</span>
+        </div>
+      </a>
+
+      <a class="card" href="qwen_vs_inkling_l5_new_tools.html">
+        <div class="card-top">
+          <span class="pill">Paired Diff</span>
+          <span class="pill warn">Transcripts</span>
+        </div>
+        <h3>Qwen3.5-4B vs Inkling-2-Mini (Unseen Git Tools)</h3>
+        <p>
+          Expandable side-by-side tool-call transcripts across 32 <code>l5_new_tools</code> tasks
+          exposing Inkling's default <code>effort=0.9</code> mid-thinking truncation (+45.1% turns,
+          +87.5% answer chars) that motivated our effort sweep.
+        </p>
+        <div class="stats">
+          <span class="stat">32 paired tasks</span>
+          <span class="stat">turns +45.1%</span>
+          <span class="stat">chars +87.5%</span>
+        </div>
+      </a>
+    </div>
+
+    <h2>Thinking-Effort Pareto Sweep (<code>Inkling-2-Mini:peft:65536:free</code>)</h2>
+    <div class="chart-card">
+      <p>
+        Lowering Inkling-2-Mini's <code>tml_v0</code> thinking effort from the hardcoded default
+        <code>0.9</code> to <code>0.2&ndash;0.5</code> lifted <code>l5_new_tools</code> success from
+        <strong>87.5% &rarr; 94.8%&ndash;95.8%</strong> (beating Qwen3.5-4B's 90.6%) while cutting
+        action tokens <strong>2.7&times;&ndash;3.9&times;</strong> and eliminating thinking truncations.
+      </p>
+      <div class="chart-frame">
+        <img src="effort_pareto.svg" alt="Inkling-2-Mini thinking-effort Pareto chart on l5_new_tools" />
+      </div>
+    </div>
+
+    <footer>
+      <span>Every report above is a single self-contained HTML file (zero CDN, zero external JS).</span>
+      <span><a href="https://github.com/BrunoSE/tinker-inspect">github.com/BrunoSE/tinker-inspect</a> &middot; MIT License</span>
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      var root = document.documentElement;
+      var btn = document.getElementById("theme-toggle");
+      var saved = null;
+      try { saved = localStorage.getItem("tinker-inspect-theme"); } catch (e) {}
+      if (saved === "dark" || saved === "light") {
+        root.setAttribute("data-theme", saved);
+      }
+      function updateLabel() {
+        var dark = root.getAttribute("data-theme") === "dark" ||
+          (!root.getAttribute("data-theme") && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        btn.textContent = dark ? "Light mode" : "Dark mode";
+      }
+      updateLabel();
+      btn.addEventListener("click", function () {
+        var dark = root.getAttribute("data-theme") === "dark" ||
+          (!root.getAttribute("data-theme") && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        var next = dark ? "light" : "dark";
+        root.setAttribute("data-theme", next);
+        try { localStorage.setItem("tinker-inspect-theme", next); } catch (e) {}
+        updateLabel();
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,1213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>__TITLE__</title>
+<style>
+:root {
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --surface-2: #f1f5f9;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --text: #0f172a;
+  --text-muted: #475569;
+  --text-dim: #64748b;
+  --accent: #4f46e5;
+  --accent-soft: #eef2ff;
+  --teal: #0d9488;
+  --green: #059669;
+  --green-bg: #ecfdf5;
+  --green-bd: #a7f3d0;
+  --amber: #d97706;
+  --amber-bg: #fffbeb;
+  --amber-bd: #fde68a;
+  --red: #e11d48;
+  --red-bg: #fff1f2;
+  --red-bd: #fecdd3;
+  --blue: #0284c7;
+  --blue-bg: #f0f9ff;
+  --blue-bd: #bae6fd;
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+}
+[data-theme="dark"] {
+  --bg: #0b0f19;
+  --surface: #111827;
+  --surface-2: #1e293b;
+  --border: #1f2937;
+  --border-strong: #334155;
+  --text: #f1f5f9;
+  --text-muted: #cbd5e1;
+  --text-dim: #94a3b8;
+  --accent: #818cf8;
+  --accent-soft: rgba(99, 102, 241, 0.16);
+  --teal: #2dd4bf;
+  --green: #34d399;
+  --green-bg: rgba(16, 185, 129, 0.14);
+  --green-bd: rgba(52, 211, 153, 0.35);
+  --amber: #fbbf24;
+  --amber-bg: rgba(245, 158, 11, 0.14);
+  --amber-bd: rgba(251, 191, 36, 0.35);
+  --red: #fb7185;
+  --red-bg: rgba(244, 63, 94, 0.15);
+  --red-bd: rgba(251, 113, 133, 0.35);
+  --blue: #38bdf8;
+  --blue-bg: rgba(56, 189, 248, 0.14);
+  --blue-bd: rgba(56, 189, 248, 0.35);
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 24px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.brand-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--accent);
+}
+.brand-title {
+  font-weight: 650;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 550;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+.pill.pass { background: var(--green-bg); border-color: var(--green-bd); color: var(--green); }
+.pill.warn { background: var(--amber-bg); border-color: var(--amber-bd); color: var(--amber); }
+.pill.fail { background: var(--red-bg); border-color: var(--red-bd); color: var(--red); }
+.pill.info { background: var(--blue-bg); border-color: var(--blue-bd); color: var(--blue); }
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.nav a, .btn {
+  text-decoration: none;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+}
+.nav a:hover, .btn:hover { background: var(--surface-2); color: var(--text); }
+.btn.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.btn-outline { border-color: var(--border); background: var(--surface); }
+.container {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 20px 24px 64px;
+}
+.section { margin-top: 26px; scroll-margin-top: 72px; }
+.section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.section-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.section-sub { color: var(--text-dim); font-size: 12.5px; }
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(205px, 1fr));
+  gap: 12px;
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 15px 16px;
+  box-shadow: var(--shadow);
+}
+.kpi-label {
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+.kpi-val {
+  font-size: 24px;
+  font-weight: 700;
+  margin-top: 4px;
+  letter-spacing: -0.02em;
+}
+.kpi-sub { font-size: 12px; color: var(--text-dim); margin-top: 3px; }
+.findings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 10px;
+}
+.finding {
+  border-radius: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.finding.pass { border-left: 3px solid var(--green); }
+.finding.warn { border-left: 3px solid var(--amber); }
+.finding.fail { border-left: 3px solid var(--red); }
+.finding.info { border-left: 3px solid var(--blue); }
+.finding-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.finding-title { font-weight: 600; font-size: 13.5px; }
+.finding-headline { margin-top: 4px; font-weight: 550; font-size: 13px; color: var(--text); }
+.finding-detail { margin-top: 4px; font-size: 12.5px; color: var(--text-muted); }
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));
+  gap: 14px;
+}
+@media (max-width: 640px) { .chart-grid { grid-template-columns: 1fr; } }
+.chart-card { padding: 14px 16px; }
+.chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.chart-title { font-weight: 600; font-size: 13.5px; }
+.legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--text-muted); }
+.legend-item { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.legend-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.svg-wrap { position: relative; width: 100%; }
+.svg-wrap svg { display: block; width: 100%; height: auto; }
+.tooltip {
+  position: fixed;
+  pointer-events: none;
+  z-index: 90;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+  display: none;
+  max-width: 280px;
+}
+.bar-track {
+  height: 22px;
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.bar-seg { height: 100%; transition: width 0.2s; }
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+select, input[type="search"] {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 5px 9px;
+  font-size: 12.5px;
+  font-family: inherit;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+th, td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+th {
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  font-weight: 600;
+  background: var(--surface-2);
+}
+tr.clickable { cursor: pointer; }
+tr.clickable:hover td { background: var(--surface-2); }
+.num { text-align: right; font-family: var(--mono); font-size: 12.5px; }
+.pos { color: var(--green); font-weight: 600; }
+.neg { color: var(--red); font-weight: 600; }
+.muted { color: var(--text-dim); }
+.mono { font-family: var(--mono); font-size: 12px; }
+.detail-row td { background: var(--surface-2); padding: 12px 14px; }
+.split-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 900px) { .split-grid { grid-template-columns: 1fr; } }
+.transcript-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  max-height: 460px;
+  overflow-y: auto;
+}
+.msg {
+  padding: 7px 9px;
+  border-radius: 6px;
+  margin-bottom: 7px;
+  border: 1px solid var(--border);
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.msg-role {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 3px;
+  color: var(--text-dim);
+}
+.msg.user { background: var(--blue-bg); border-color: var(--blue-bd); }
+.msg.assistant { background: var(--surface); }
+.msg.tool { background: var(--surface-2); font-family: var(--mono); font-size: 11.5px; }
+.tc-chip {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin: 2px 4px 2px 0;
+}
+pre.codebox {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  margin: 0;
+}
+.footer {
+  margin-top: 40px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 12px;
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.reward-dots { display: inline-flex; gap: 3px; align-items: center; }
+.rdot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+</style>
+</head>
+<body>
+<div id="tooltip" class="tooltip"></div>
+<header class="topbar" id="topbar"></header>
+<main class="container" id="app"></main>
+
+<script id="payload" type="application/json">__PAYLOAD_JSON__</script>
+<script>
+(() => {
+  const DATA = JSON.parse(document.getElementById("payload").textContent);
+  const PALETTE = ["#4f46e5", "#0d9488", "#d97706", "#e11d48", "#0284c7", "#7c3aed", "#059669"];
+  const tooltip = document.getElementById("tooltip");
+
+  // Theme init
+  const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.setAttribute("data-theme", prefersDark ? "dark" : "light");
+
+  function esc(s) {
+    return String(s ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+  function fmtInt(n) {
+    if (n == null) return "n/a";
+    if (Math.abs(n) >= 1e6) return (n / 1e6).toFixed(2) + "M";
+    if (Math.abs(n) >= 1e3) return (n / 1e3).toFixed(1) + "k";
+    return String(Math.round(n));
+  }
+  function fmtDur(sec) {
+    if (sec == null) return "n/a";
+    if (sec >= 3600) return (sec / 3600).toFixed(2) + "h";
+    if (sec >= 60) return (sec / 60).toFixed(1) + "m";
+    return sec.toFixed(1) + "s";
+  }
+  function fmtPct(v, digits = 0) {
+    return v == null ? "n/a" : (v * 100).toFixed(digits) + "%";
+  }
+  function showTip(evt, html) {
+    tooltip.innerHTML = html;
+    tooltip.style.display = "block";
+    const x = Math.min(window.innerWidth - 290, evt.clientX + 14);
+    const y = Math.min(window.innerHeight - 140, evt.clientY + 14);
+    tooltip.style.left = Math.max(8, x) + "px";
+    tooltip.style.top = Math.max(8, y) + "px";
+  }
+  function hideTip() { tooltip.style.display = "none"; }
+
+  function renderTopbar(title, pills, navLinks) {
+    const tb = document.getElementById("topbar");
+    tb.innerHTML = `
+      <div class="brand">
+        <span class="brand-dot"></span>
+        <span class="brand-title">${esc(title)}</span>
+        ${pills.map(p => `<span class="pill ${esc(p.cls || "")}">${esc(p.text)}</span>`).join("")}
+      </div>
+      <nav class="nav">
+        ${navLinks.map(([href, label]) => `<a href="${esc(href)}">${esc(label)}</a>`).join("")}
+        <button class="btn btn-outline" id="themeBtn" type="button">Theme</button>
+      </nav>
+    `;
+    document.getElementById("themeBtn").addEventListener("click", () => {
+      const cur = document.documentElement.getAttribute("data-theme");
+      document.documentElement.setAttribute("data-theme", cur === "dark" ? "light" : "dark");
+    });
+  }
+
+  // Generic interactive SVG line chart
+  function mountLineChart(container, opts) {
+    const { series, checkpoints = [], yFmt = v => v.toFixed(3), height = 220, smooth = 0 } = opts;
+    const activeSeries = series.filter(s => s.points.length > 0);
+    if (!activeSeries.length) {
+      container.innerHTML = `<div class="muted" style="padding:24px 0;text-align:center">No data available</div>`;
+      return;
+    }
+    const W = 560, H = height;
+    const pad = { l: 48, r: 16, t: 14, b: 28 };
+    const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
+
+    function applySmooth(pts) {
+      if (!smooth || smooth <= 1) return pts;
+      const alpha = 2 / (smooth + 1);
+      let ema = pts[0].y;
+      return pts.map((p, i) => {
+        ema = i === 0 ? p.y : alpha * p.y + (1 - alpha) * ema;
+        return { x: p.x, y: ema, rawY: p.y };
+      });
+    }
+
+    const smoothed = activeSeries.map(s => ({ ...s, pts: applySmooth(s.points) }));
+    const allX = smoothed.flatMap(s => s.pts.map(p => p.x));
+    const allY = smoothed.flatMap(s => s.pts.map(p => p.y));
+    const minX = Math.min(...allX), maxX = Math.max(...allX);
+    let minY = opts.minY != null ? opts.minY : Math.min(...allY);
+    let maxY = opts.maxY != null ? opts.maxY : Math.max(...allY);
+    if (Math.abs(maxY - minY) < 1e-9) { minY -= 0.1; maxY += 0.1; }
+    else { const m = (maxY - minY) * 0.08; minY = opts.minY != null ? opts.minY : minY - m; maxY = opts.maxY != null ? opts.maxY : maxY + m; }
+
+    const sx = x => pad.l + (maxX === minX ? iw / 2 : ((x - minX) / (maxX - minX)) * iw);
+    const sy = y => pad.t + ih - ((y - minY) / (maxY - minY)) * ih;
+
+    let svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`;
+    // Y gridlines
+    for (let i = 0; i <= 4; i++) {
+      const yv = minY + (i / 4) * (maxY - minY);
+      const yp = sy(yv);
+      svg += `<line x1="${pad.l}" y1="${yp}" x2="${W - pad.r}" y2="${yp}" stroke="var(--border)" stroke-width="1"/>`;
+      svg += `<text x="${pad.l - 6}" y="${yp + 3.5}" text-anchor="end" fill="var(--text-dim)" font-size="10">${esc(yFmt(yv))}</text>`;
+    }
+    // X ticks
+    const xTicks = Math.min(6, Math.max(2, new Set(allX).size));
+    for (let i = 0; i < xTicks; i++) {
+      const xv = minX + (i / Math.max(1, xTicks - 1)) * (maxX - minX);
+      const xp = sx(xv);
+      svg += `<text x="${xp}" y="${H - 7}" text-anchor="middle" fill="var(--text-dim)" font-size="10">${Math.round(xv)}</text>`;
+    }
+    // Checkpoints
+    for (const ck of checkpoints) {
+      if (ck.batch >= minX && ck.batch <= maxX) {
+        const xp = sx(ck.batch);
+        svg += `<line x1="${xp}" y1="${pad.t}" x2="${xp}" y2="${H - pad.b}" stroke="var(--border-strong)" stroke-dasharray="3 3" stroke-width="1"/>`;
+        svg += `<text x="${xp + 3}" y="${pad.t + 10}" fill="var(--text-dim)" font-size="9">${esc(ck.name)}</text>`;
+      }
+    }
+    // Lines
+    for (const s of smoothed) {
+      const d = s.pts.map((p, i) => `${i === 0 ? "M" : "L"}${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(" ");
+      svg += `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2" ${s.dashed ? 'stroke-dasharray="5 3"' : ""}/>`;
+      if (s.pts.length <= 40) {
+        for (const p of s.pts) {
+          svg += `<circle cx="${sx(p.x).toFixed(1)}" cy="${sy(p.y).toFixed(1)}" r="2.6" fill="${s.color}"/>`;
+        }
+      }
+    }
+    // Interactive hover targets by unique x
+    const uniqX = [...new Set(allX)].sort((a, b) => a - b);
+    const colW = uniqX.length > 1 ? iw / uniqX.length : iw;
+    for (const xv of uniqX) {
+      const xp = sx(xv);
+      svg += `<rect class="hx" data-x="${xv}" x="${(xp - colW / 2).toFixed(1)}" y="${pad.t}" width="${Math.max(8, colW).toFixed(1)}" height="${ih}" fill="transparent" style="cursor:crosshair"/>`;
+    }
+    svg += `<line class="crosshair" x1="0" y1="${pad.t}" x2="0" y2="${H - pad.b}" stroke="var(--text-dim)" stroke-dasharray="2 2" stroke-width="1" style="display:none;pointer-events:none"/>`;
+    svg += `</svg>`;
+    container.innerHTML = svg;
+
+    const lineEl = container.querySelector(".crosshair");
+    container.querySelectorAll(".hx").forEach(rect => {
+      rect.addEventListener("mousemove", evt => {
+        const xv = Number(rect.dataset.x);
+        const xp = sx(xv);
+        lineEl.setAttribute("x1", xp);
+        lineEl.setAttribute("x2", xp);
+        lineEl.style.display = "block";
+        const rows = smoothed.map(s => {
+          const p = s.pts.find(pt => pt.x === xv);
+          if (!p) return "";
+          return `<div style="display:flex;justify-content:space-between;gap:12px"><span><span class="legend-swatch" style="background:${s.color}"></span> ${esc(s.label)}</span><span class="mono">${esc(yFmt(p.rawY ?? p.y))}</span></div>`;
+        }).join("");
+        showTip(evt, `<div style="font-weight:600;margin-bottom:4px">Step ${xv}</div>${rows}`);
+      });
+      rect.addEventListener("mouseleave", () => {
+        lineEl.style.display = "none";
+        hideTip();
+      });
+    });
+  }
+
+  // Stacked bar chart for per-step group filtering
+  function mountDropBarChart(container, dropStats, height = 220) {
+    if (!dropStats || !dropStats.length) {
+      container.innerHTML = `<div class="muted" style="padding:24px 0;text-align:center">No rollout summary files found</div>`;
+      return;
+    }
+    const W = 560, H = height;
+    const pad = { l: 42, r: 14, t: 14, b: 28 };
+    const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
+    const maxN = Math.max(...dropStats.map(d => d.groups_sampled), 1);
+    const barW = Math.max(4, iw / dropStats.length - 3);
+    const sy = v => pad.t + ih - (v / maxN) * ih;
+    const sh = v => (v / maxN) * ih;
+
+    let svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`;
+    for (let i = 0; i <= 4; i++) {
+      const yv = (i / 4) * maxN;
+      const yp = sy(yv);
+      svg += `<line x1="${pad.l}" y1="${yp}" x2="${W - pad.r}" y2="${yp}" stroke="var(--border)" stroke-width="1"/>`;
+      svg += `<text x="${pad.l - 6}" y="${yp + 3.5}" text-anchor="end" fill="var(--text-dim)" font-size="10">${Math.round(yv)}</text>`;
+    }
+    dropStats.forEach((d, idx) => {
+      const x = pad.l + idx * (iw / dropStats.length) + 1.5;
+      let yCursor = pad.t + ih;
+      const segs = [
+        { v: d.groups_mixed, color: "#059669" },
+        { v: d.groups_all_good, color: "#f59e0b" },
+        { v: d.groups_all_bad + (d.groups_constant_other || 0), color: "#e11d48" },
+      ];
+      for (const seg of segs) {
+        if (seg.v <= 0) continue;
+        const h = sh(seg.v);
+        yCursor -= h;
+        svg += `<rect x="${x.toFixed(1)}" y="${yCursor.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${seg.color}" rx="1.5"/>`;
+      }
+      if (dropStats.length <= 12 || idx % Math.ceil(dropStats.length / 8) === 0 || idx === dropStats.length - 1) {
+        svg += `<text x="${(x + barW / 2).toFixed(1)}" y="${H - 7}" text-anchor="middle" fill="var(--text-dim)" font-size="10">${d.step}</text>`;
+      }
+      svg += `<rect class="db" data-idx="${idx}" x="${x.toFixed(1)}" y="${pad.t}" width="${barW.toFixed(1)}" height="${ih}" fill="transparent" style="cursor:pointer"/>`;
+    });
+    svg += `</svg>`;
+    container.innerHTML = svg;
+    container.querySelectorAll(".db").forEach(el => {
+      el.addEventListener("mousemove", evt => {
+        const d = dropStats[Number(el.dataset.idx)];
+        showTip(evt, `
+          <div style="font-weight:600;margin-bottom:4px">Step ${d.step}</div>
+          <div>Mixed (kept): <span class="mono">${d.groups_mixed}</span></div>
+          <div>All-good (const): <span class="mono">${d.groups_all_good}</span></div>
+          <div>All-bad / other: <span class="mono">${d.groups_all_bad + (d.groups_constant_other || 0)}</span></div>
+          <div style="margin-top:4px;border-top:1px solid var(--border);padding-top:4px">Episodes: <span class="mono">${d.episodes_kept}/${d.episodes_sampled}</span> (${fmtPct(1 - d.drop_frac)} kept)</div>
+        `);
+      });
+      el.addEventListener("mouseleave", hideTip);
+    });
+  }
+
+  // Gantt chart for one step's timing_spans.jsonl
+  function mountGantt(container, timing) {
+    if (!timing || !timing.spans || !timing.spans.length) {
+      container.innerHTML = `<div class="muted" style="padding:18px 0">No timing spans recorded for this step.</div>`;
+      return;
+    }
+    const rollouts = timing.spans
+      .filter(s => s.name === "do_group_rollout_and_filter_constant_reward" || s.name === "do_group_rollout")
+      .sort((a, b) => a.duration - b.duration);
+    const phases = timing.spans.filter(s => ["prepare_minibatch", "train_step", "save_checkpoint"].includes(s.name));
+    const bars = [
+      ...rollouts.map((s, i) => ({ label: `group #${i + 1}`, kind: "rollout", ...s })),
+      ...phases.map(s => ({ label: s.name, kind: s.name, ...s })),
+    ];
+    const maxEnd = Math.max(...bars.map(b => b.wall_end), 1);
+    const maxRollDur = rollouts.length ? Math.max(...rollouts.map(r => r.duration)) : 0;
+
+    const rowH = 18, pad = { l: 118, r: 24, t: 10, b: 26 };
+    const W = 960, H = pad.t + pad.b + bars.length * rowH;
+    const iw = W - pad.l - pad.r;
+    const sx = t => pad.l + (t / maxEnd) * iw;
+
+    const colors = {
+      rollout: "#6366f1",
+      straggler: "#e11d48",
+      prepare_minibatch: "#0284c7",
+      train_step: "#0d9488",
+      save_checkpoint: "#d97706",
+    };
+
+    let svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`;
+    for (let i = 0; i <= 5; i++) {
+      const tv = (i / 5) * maxEnd;
+      const xp = sx(tv);
+      svg += `<line x1="${xp}" y1="${pad.t}" x2="${xp}" y2="${H - pad.b}" stroke="var(--border)" stroke-width="1"/>`;
+      svg += `<text x="${xp}" y="${H - 7}" text-anchor="middle" fill="var(--text-dim)" font-size="10">${tv.toFixed(1)}s</text>`;
+    }
+    bars.forEach((b, idx) => {
+      const y = pad.t + idx * rowH;
+      const x1 = sx(b.wall_start);
+      const bw = Math.max(2, sx(b.wall_end) - x1);
+      const isStrag = b.kind === "rollout" && rollouts.length > 1 && Math.abs(b.duration - maxRollDur) < 1e-6;
+      const fill = isStrag ? colors.straggler : (colors[b.kind] || "#64748b");
+      svg += `<text x="${pad.l - 8}" y="${y + 12}" text-anchor="end" fill="${isStrag ? "var(--red)" : "var(--text-dim)"}" font-size="10.5" font-weight="${isStrag ? "700" : "400"}">${esc(b.label)}</text>`;
+      svg += `<rect class="gb" data-idx="${idx}" x="${x1.toFixed(1)}" y="${y + 3}" width="${bw.toFixed(1)}" height="${rowH - 6}" rx="3" fill="${fill}" opacity="0.88" style="cursor:pointer"/>`;
+    });
+    svg += `</svg>`;
+    container.innerHTML = svg;
+    container.querySelectorAll(".gb").forEach(el => {
+      el.addEventListener("mousemove", evt => {
+        const b = bars[Number(el.dataset.idx)];
+        showTip(evt, `<div style="font-weight:600">${esc(b.label)}</div><div>Duration: <span class="mono">${b.duration.toFixed(2)}s</span></div><div>Window: <span class="mono">${b.wall_start.toFixed(1)}s -> ${b.wall_end.toFixed(1)}s</span></div>`);
+      });
+      el.addEventListener("mouseleave", hideTip);
+    });
+  }
+
+  // Render eval diff panel (shared between run+eval mode and standalone diff mode)
+  function renderEvalDiffSection(diff, mountEl) {
+    let activeMetric = diff.primary_metric;
+    let activeFilter = "all";
+    let searchTerm = "";
+    const openTasks = new Set();
+    const rolloutChoice = {}; // task_key -> {base: 0, final: 0}
+
+    function renderMsgs(ep) {
+      if (!ep || !ep.messages || !ep.messages.length) {
+        return `<div class="muted">No message transcript recorded.</div>`;
+      }
+      return ep.messages.map(m => {
+        const tcs = (m.tool_calls || []).map(tc =>
+          `<div class="tc-chip">${esc(tc.name)}(${esc(tc.arguments)})</div>`
+        ).join("");
+        const body = m.content ? `<div>${esc(m.content)}</div>` : "";
+        const roleLabel = m.name ? `${m.role} · ${m.name}` : m.role;
+        return `<div class="msg ${esc(m.role)}"><div class="msg-role">${esc(roleLabel)}</div>${tcs}${body}</div>`;
+      }).join("");
+    }
+
+    function paint() {
+      const mRows = diff.metric_deltas.map(md => {
+        const cls = md.ci_low > 0 ? "pos" : (md.ci_high < 0 ? "neg" : "");
+        return `<tr>
+          <td><strong>${esc(md.metric)}</strong></td>
+          <td class="num">${md.base_mean.toFixed(3)}</td>
+          <td class="num">${md.final_mean.toFixed(3)}</td>
+          <td class="num ${cls}">${md.delta >= 0 ? "+" : ""}${md.delta.toFixed(3)}</td>
+          <td class="num muted">[${md.ci_low >= 0 ? "+" : ""}${md.ci_low.toFixed(3)}, ${md.ci_high >= 0 ? "+" : ""}${md.ci_high.toFixed(3)}]</td>
+          <td class="num"><span class="pos">${md.wins}</span> / <span class="neg">${md.regressions}</span> / ${md.ties}</td>
+        </tr>`;
+      }).join("");
+
+      const filtered = diff.tasks.filter(t => {
+        const d = t.deltas[activeMetric] ?? 0;
+        if (activeFilter === "wins" && !(d > 1e-9)) return false;
+        if (activeFilter === "regs" && !(d < -1e-9)) return false;
+        if (activeFilter === "ties" && Math.abs(d) > 1e-9) return false;
+        if (activeFilter === "inflated" && !(t.chars_ratio != null && t.chars_ratio >= 1.5)) return false;
+        if (activeFilter === "lit_vs_facts") {
+          const ld = t.deltas["outcome"] ?? t.deltas["success"] ?? 0;
+          const fd = t.deltas["outcome_facts"] ?? t.deltas["success_facts"] ?? 0;
+          if (!(Math.abs(ld - fd) >= 0.2)) return false;
+        }
+        if (searchTerm && !t.prompt.toLowerCase().includes(searchTerm.toLowerCase()) && !String(t.task_key).toLowerCase().includes(searchTerm.toLowerCase())) {
+          return false;
+        }
+        return true;
+      }).sort((a, b) => Math.abs(b.deltas[activeMetric] ?? 0) - Math.abs(a.deltas[activeMetric] ?? 0));
+
+      const tRows = filtered.map(t => {
+        const bv = t.base_metrics[activeMetric];
+        const fv = t.final_metrics[activeMetric];
+        const dv = t.deltas[activeMetric] ?? 0;
+        const dCls = dv > 1e-9 ? "pos" : (dv < -1e-9 ? "neg" : "muted");
+        const isOpen = openTasks.has(t.task_key);
+        let html = `<tr class="clickable task-row" data-tk="${esc(t.task_key)}">
+          <td class="mono">${esc(t.task_id ?? t.task_key)}</td>
+          <td>${esc(t.prompt.slice(0, 120))}${t.prompt.length > 120 ? "..." : ""}</td>
+          <td class="num">${bv != null ? bv.toFixed(2) : "n/a"}</td>
+          <td class="num">${fv != null ? fv.toFixed(2) : "n/a"}</td>
+          <td class="num ${dCls}">${dv >= 0 ? "+" : ""}${dv.toFixed(2)}</td>
+          <td class="num">${Math.round(t.base_chars)} -> ${Math.round(t.final_chars)}${t.chars_ratio != null ? ` <span class="muted">(${t.chars_ratio.toFixed(2)}x)</span>` : ""}</td>
+          <td class="num">${t.base_turns.toFixed(1)} -> ${t.final_turns.toFixed(1)}</td>
+        </tr>`;
+        if (isOpen) {
+          const choice = rolloutChoice[t.task_key] || { base: 0, final: 0 };
+          const bEp = t.base_episodes[choice.base] || t.base_episodes[0];
+          const fEp = t.final_episodes[choice.final] || t.final_episodes[0];
+          const bBtns = t.base_episodes.map((e, i) => `<button type="button" class="btn rbtn ${i === choice.base ? "active" : ""}" data-tk="${esc(t.task_key)}" data-side="base" data-i="${i}">r${i+1} (${(e.metrics[activeMetric] ?? e.reward).toFixed(2)})</button>`).join("");
+          const fBtns = t.final_episodes.map((e, i) => `<button type="button" class="btn rbtn ${i === choice.final ? "active" : ""}" data-tk="${esc(t.task_key)}" data-side="final" data-i="${i}">r${i+1} (${(e.metrics[activeMetric] ?? e.reward).toFixed(2)})</button>`).join("");
+          html += `<tr class="detail-row"><td colspan="7">
+            <div style="margin-bottom:8px"><strong>Full prompt:</strong> ${esc(t.prompt)}</div>
+            <div class="split-grid">
+              <div>
+                <div class="controls" style="margin-bottom:6px"><strong>${esc(diff.base_label)}</strong> ${bBtns} <span class="muted mono">${bEp ? `${bEp.final_answer_chars} chars` : ""}</span></div>
+                <div class="transcript-box">${renderMsgs(bEp)}</div>
+              </div>
+              <div>
+                <div class="controls" style="margin-bottom:6px"><strong>${esc(diff.final_label)}</strong> ${fBtns} <span class="muted mono">${fEp ? `${fEp.final_answer_chars} chars` : ""}</span></div>
+                <div class="transcript-box">${renderMsgs(fEp)}</div>
+              </div>
+            </div>
+          </td></tr>`;
+        }
+        return html;
+      }).join("");
+
+      const hasLitFacts = diff.metric_deltas.some(m => m.metric.endsWith("_facts"));
+      mountEl.innerHTML = `
+        <div class="section-head">
+          <h2>Eval Diff: ${esc(diff.base_label)} &rarr; ${esc(diff.final_label)}</h2>
+          <span class="section-sub">${diff.num_tasks} paired tasks &middot; ${diff.base_total_episodes} vs ${diff.final_total_episodes} rollouts${diff.answer_chars_change_pct != null ? ` &middot; answer chars ${diff.answer_chars_change_pct >= 0 ? "+" : ""}${diff.answer_chars_change_pct.toFixed(1)}%` : ""}</span>
+        </div>
+        <div class="card" style="margin-bottom:14px;overflow-x:auto">
+          <table>
+            <thead><tr><th>Metric</th><th class="num">Base</th><th class="num">Final</th><th class="num">Delta</th><th class="num">95% Bootstrap CI</th><th class="num">Wins / Regs / Ties</th></tr></thead>
+            <tbody>${mRows}</tbody>
+          </table>
+        </div>
+        <div class="card">
+          <div class="controls">
+            <label class="muted">Metric:
+              <select id="evalMetricSel">${diff.metric_deltas.map(m => `<option value="${esc(m.metric)}" ${m.metric === activeMetric ? "selected" : ""}>${esc(m.metric)}</option>`).join("")}</select>
+            </label>
+            ${[
+              ["all", `All (${diff.tasks.length})`],
+              ["wins", "Wins"],
+              ["regs", "Regressions"],
+              ["ties", "Ties"],
+              ["inflated", "Length >=1.5x"],
+              ...(hasLitFacts ? [["lit_vs_facts", "Literal vs Facts gap"]] : []),
+            ].map(([k, lbl]) => `<button type="button" class="btn fbtn ${activeFilter === k ? "active" : ""}" data-f="${k}">${lbl}</button>`).join("")}
+            <input type="search" id="evalSearch" placeholder="Search prompts..." value="${esc(searchTerm)}" style="margin-left:auto" />
+          </div>
+          <div style="overflow-x:auto">
+            <table>
+              <thead><tr><th>ID</th><th>Prompt (click row for side-by-side transcript)</th><th class="num">Base</th><th class="num">Final</th><th class="num">Delta</th><th class="num">Answer chars</th><th class="num">Turns</th></tr></thead>
+              <tbody>${tRows || `<tr><td colspan="7" class="muted" style="text-align:center;padding:20px">No tasks match filter.</td></tr>`}</tbody>
+            </table>
+          </div>
+        </div>
+      `;
+
+      mountEl.querySelector("#evalMetricSel").addEventListener("change", e => { activeMetric = e.target.value; paint(); });
+      mountEl.querySelectorAll(".fbtn").forEach(b => b.addEventListener("click", () => { activeFilter = b.dataset.f; paint(); }));
+      mountEl.querySelector("#evalSearch").addEventListener("input", e => { searchTerm = e.target.value; paint(); });
+      mountEl.querySelectorAll(".task-row").forEach(tr => tr.addEventListener("click", () => {
+        const tk = tr.dataset.tk;
+        if (openTasks.has(tk)) openTasks.delete(tk); else openTasks.add(tk);
+        paint();
+      }));
+      mountEl.querySelectorAll(".rbtn").forEach(b => b.addEventListener("click", e => {
+        e.stopPropagation();
+        const tk = b.dataset.tk;
+        rolloutChoice[tk] = rolloutChoice[tk] || { base: 0, final: 0 };
+        rolloutChoice[tk][b.dataset.side] = Number(b.dataset.i);
+        paint();
+      }));
+    }
+    paint();
+  }
+
+  // MODE 1: Single training run (+ optional eval diff)
+  function renderRunMode() {
+    const run = DATA.run;
+    const d = run.diagnostics;
+    const tok = d.tokens;
+    const hasTimings = Object.keys(run.timings).length > 0;
+    const hasGroups = Object.keys(run.groups_by_step).length > 0;
+
+    const klFinding = d.findings.find(f => f.check_id === "kl0");
+    renderTopbar(
+      `tinker-inspect / ${run.name}`,
+      [
+        ...(d.model_name ? [{ text: d.model_name }] : []),
+        { text: `${d.num_steps} steps` },
+        ...(klFinding ? [{ text: klFinding.severity === "pass" ? "KL0 PASS" : `KL0 ${klFinding.severity.toUpperCase()}`, cls: klFinding.severity }] : []),
+      ],
+      [
+        ["#overview", "Overview"],
+        ["#tokens", "Tokens & Cost"],
+        ["#curves", "Curves"],
+        ...(hasTimings ? [["#gantt", "Gantt"]] : []),
+        ...(hasGroups ? [["#groups", "Groups"]] : []),
+        ...(DATA.eval_diff ? [["#evaldiff", "Eval Diff"]] : []),
+        ["#config", "Config"],
+      ]
+    );
+
+    const app = document.getElementById("app");
+    const lastStep = run.steps[run.steps.length - 1];
+    const firstStep = run.steps[0];
+    const primaryEval = DATA.eval_diff?.metric_deltas.find(m => m.metric === DATA.eval_diff.primary_metric);
+
+    app.innerHTML = `
+      <section class="section" id="overview" style="margin-top:0">
+        <div class="kpi-grid">
+          <div class="card">
+            <div class="kpi-label">Run & Wall Time</div>
+            <div class="kpi-val">${d.num_steps} steps</div>
+            <div class="kpi-sub">${fmtDur(d.total_wall_seconds)} total${d.sampling_wall_fraction != null ? ` &middot; ${fmtPct(d.sampling_wall_fraction)} sampling` : ""}</div>
+          </div>
+          <div class="card">
+            <div class="kpi-label">KL0 Alignment</div>
+            <div class="kpi-val">${d.max_abs_kl_v1 != null ? (d.max_abs_kl_v1 === 0 ? "0.0000" : d.max_abs_kl_v1.toExponential(2)) : "n/a"}</div>
+            <div class="kpi-sub">${d.first_nonzero_kl_step != null ? `First drift at step ${d.first_nonzero_kl_step}` : "v1 & v2 exact across all steps"}</div>
+          </div>
+          <div class="card">
+            <div class="kpi-label">Constant-Group Drop</div>
+            <div class="kpi-val">${d.discarded_group_fraction != null ? fmtPct(d.discarded_group_fraction) : "n/a"}</div>
+            <div class="kpi-sub">${d.total_episodes_kept != null ? `${d.total_episodes_kept}/${d.total_episodes_sampled} episodes trained` : "Rollout summaries not logged"}</div>
+          </div>
+          <div class="card">
+            <div class="kpi-label">Multi-Turn Prefill</div>
+            <div class="kpi-val">${tok.prefill_multiplier != null ? tok.prefill_multiplier.toFixed(2) + "x" : fmtInt(tok.prefill_total)}</div>
+            <div class="kpi-sub">${fmtInt(tok.prefill_total)} prefill${tok.unique_trajectory_tokens ? ` / ${fmtInt(tok.unique_trajectory_tokens)} unique` : ""}${tok.estimated_cost_usd != null ? ` &middot; $${tok.estimated_cost_usd.toFixed(2)}` : ""}</div>
+          </div>
+          <div class="card">
+            <div class="kpi-label">${primaryEval ? `Eval (${primaryEval.metric})` : "Final Reward"}</div>
+            <div class="kpi-val">${primaryEval ? `${primaryEval.base_mean.toFixed(3)} &rarr; ${primaryEval.final_mean.toFixed(3)}` : (lastStep?.reward_total != null ? lastStep.reward_total.toFixed(3) : "n/a")}</div>
+            <div class="kpi-sub">${primaryEval ? `Delta ${primaryEval.delta >= 0 ? "+" : ""}${primaryEval.delta.toFixed(3)} [${primaryEval.ci_low >= 0 ? "+" : ""}${primaryEval.ci_low.toFixed(3)}, ${primaryEval.ci_high >= 0 ? "+" : ""}${primaryEval.ci_high.toFixed(3)}]` : (firstStep?.reward_total != null && lastStep?.reward_total != null ? `From ${firstStep.reward_total.toFixed(3)} at step 0` : "")}</div>
+          </div>
+        </div>
+        <div class="section-head" style="margin-top:20px"><h2>Automated Health Checks</h2><span class="section-sub">Evaluated offline from Tinker log_path artifacts</span></div>
+        <div class="findings-grid">
+          ${d.findings.map(f => `
+            <div class="finding ${esc(f.severity)}">
+              <div class="finding-top">
+                <span class="finding-title">${esc(f.title)}</span>
+                <span class="pill ${esc(f.severity)}">${esc(f.severity.toUpperCase())}</span>
+              </div>
+              <div class="finding-headline">${esc(f.headline)}</div>
+              <div class="finding-detail">${esc(f.detail)}</div>
+            </div>
+          `).join("")}
+        </div>
+      </section>
+
+      <section class="section" id="tokens">
+        <div class="section-head">
+          <h2>Multi-Turn Token &amp; Cost Breakdown</h2>
+          <span class="section-sub">Source: ${esc(tok.source)}${tok.pricing_source ? ` &middot; Pricing: ${esc(tok.pricing_source)}` : ""}</span>
+        </div>
+        <div class="card" id="tokensCard"></div>
+      </section>
+
+      <section class="section" id="curves">
+        <div class="section-head">
+          <h2>Training Curves</h2>
+          <div class="controls" style="margin:0">
+            <label class="muted">Smoothing (EMA):
+              <select id="smoothSel">
+                <option value="0">Raw</option>
+                <option value="3">EMA 3</option>
+                <option value="5">EMA 5</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div class="chart-grid" id="chartGrid"></div>
+        <div id="tagGridWrap" style="margin-top:14px"></div>
+      </section>
+
+      ${hasTimings ? `<section class="section" id="gantt">
+        <div class="section-head">
+          <h2>Step Timing &amp; Straggler Gantt</h2>
+          <span class="section-sub">Concurrent group rollouts vs training &amp; checkpointing from timing_spans.jsonl</span>
+        </div>
+        <div class="card" id="ganttCard"></div>
+      </section>` : ""}
+
+      ${hasGroups ? `<section class="section" id="groups">
+        <div class="section-head">
+          <h2>Pre-Filter Group &amp; Trajectory Inspector</h2>
+          <span class="section-sub">Ground-truth groups from iteration_*/train_rollout_summaries.jsonl before constant-reward filtering</span>
+        </div>
+        <div class="card" id="groupsCard"></div>
+      </section>` : ""}
+
+      ${DATA.eval_diff ? `<section class="section" id="evaldiff"></section>` : ""}
+
+      <section class="section" id="config">
+        <div class="section-head"><h2>Run Configuration &amp; Checkpoints</h2></div>
+        <div class="split-grid">
+          <div class="card">
+            <div class="chart-title" style="margin-bottom:8px">config.json</div>
+            <pre class="codebox">${esc(JSON.stringify(run.config, null, 2))}</pre>
+          </div>
+          <div class="card">
+            <div class="chart-title" style="margin-bottom:8px">Checkpoints (${run.checkpoints.length})</div>
+            ${run.checkpoints.length ? `<table><thead><tr><th>Name</th><th class="num">Batch</th><th>Sampler Path</th></tr></thead><tbody>${run.checkpoints.map(c => `<tr><td>${esc(c.name)}</td><td class="num">${c.batch}</td><td class="mono">${esc(c.sampler_path || c.state_path || "")}</td></tr>`).join("")}</tbody></table>` : `<div class="muted">No checkpoints recorded.</div>`}
+            ${run.code_diff ? `<details style="margin-top:14px"><summary style="cursor:pointer;font-weight:600">code.diff (${run.code_diff.length} chars)</summary><pre class="codebox" style="margin-top:8px">${esc(run.code_diff)}</pre></details>` : ""}
+          </div>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <span>Generated by <strong>tinker-inspect v${esc(DATA.version)}</strong> (zero-dependency static report)</span>
+        <span class="mono">${esc(run.log_dir)}</span>
+      </footer>
+    `;
+
+    // Tokens waterfall card
+    const totalAll = Math.max(1, tok.kept_prefill + tok.discarded_prefill + tok.kept_sampled + tok.discarded_sampled + tok.trained_total);
+    const segs = [
+      { label: "Kept Prefill", v: tok.kept_prefill, color: "#4f46e5" },
+      { label: "Discarded Prefill", v: tok.discarded_prefill, color: "#f59e0b" },
+      { label: "Kept Sampled", v: tok.kept_sampled, color: "#0d9488" },
+      { label: "Discarded Sampled", v: tok.discarded_sampled, color: "#e11d48" },
+      { label: "Trained", v: tok.trained_total, color: "#0284c7" },
+    ];
+    document.getElementById("tokensCard").innerHTML = `
+      <div class="bar-track" style="margin-bottom:10px">
+        ${segs.map(s => s.v > 0 ? `<div class="bar-seg" title="${esc(s.label)}: ${s.v.toLocaleString()}" style="width:${(s.v / totalAll * 100).toFixed(2)}%;background:${s.color}"></div>` : "").join("")}
+      </div>
+      <div class="legend" style="margin-bottom:14px">
+        ${segs.map(s => `<span class="legend-item"><span class="legend-swatch" style="background:${s.color}"></span>${esc(s.label)}: <strong class="mono">${fmtInt(s.v)}</strong></span>`).join("")}
+      </div>
+      <table>
+        <thead><tr><th>Category</th><th class="num">Tokens</th><th class="num">Share / Ratio</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Total Multi-Turn Prefill</td><td class="num">${tok.prefill_total.toLocaleString()}</td><td class="num">${tok.prefill_multiplier != null ? `${tok.prefill_multiplier.toFixed(2)}x unique` : "—"}</td><td class="muted">Sum of ob_len across every turn</td></tr>
+          <tr><td>Prefix-Cacheable Prefill</td><td class="num">${tok.prefill_cached.toLocaleString()}</td><td class="num">${fmtPct(tok.cacheable_fraction, 1)}</td><td class="muted">${tok.source === "native" ? "API-reported cache hits" : "Prior turn ob_len + ac_len carried forward"}</td></tr>
+          <tr><td>Uncached Prefill</td><td class="num">${tok.prefill_uncached.toLocaleString()}</td><td class="num">${tok.cacheable_fraction != null ? fmtPct(1 - tok.cacheable_fraction, 1) : "—"}</td><td class="muted">Initial prompt + new tool outputs</td></tr>
+          <tr><td>Unique Trajectory Tokens</td><td class="num">${tok.unique_trajectory_tokens.toLocaleString()}</td><td class="num">1.00x baseline</td><td class="muted">Sum of final_ob_len (undercounts multi-turn billing if used alone)</td></tr>
+          <tr><td>Sampled Action Tokens</td><td class="num">${tok.sampled_total.toLocaleString()}</td><td class="num">${tok.discarded_sampled ? `${fmtPct(tok.discarded_sampled / Math.max(1, tok.sampled_total))} discarded` : "—"}</td><td class="muted">Generated by policy across all turns</td></tr>
+          <tr><td>Trained Tokens</td><td class="num">${tok.trained_total.toLocaleString()}</td><td class="num">—</td><td class="muted">Sent to forward_backward (kept groups only)</td></tr>
+          ${tok.estimated_cost_usd != null ? `<tr><td><strong>Estimated Cost</strong></td><td class="num"><strong>$${tok.estimated_cost_usd.toFixed(2)}</strong></td><td class="num">${tok.estimated_discarded_cost_usd != null ? `$${tok.estimated_discarded_cost_usd.toFixed(2)} discarded` : "—"}</td><td class="muted">${esc(tok.pricing_source || "")}</td></tr>` : ""}
+        </tbody>
+      </table>
+    `;
+
+    // Curves
+    function paintCurves(smooth) {
+      const grid = document.getElementById("chartGrid");
+      const rewardSeries = [];
+      const metricCandidates = ["reward/total", "outcome", "outcome_facts", "success", "success_facts", "correct"];
+      const seen = new Set();
+      for (const mk of [...metricCandidates, ...d.available_metrics]) {
+        if (seen.has(mk) || rewardSeries.length >= 6) continue;
+        const pts = run.steps
+          .filter(s => s.env_metrics[mk] != null)
+          .map(s => ({ x: s.step, y: s.env_metrics[mk] }));
+        if (pts.length) {
+          seen.add(mk);
+          rewardSeries.push({ label: mk, color: PALETTE[rewardSeries.length % PALETTE.length], points: pts });
+        }
+      }
+      const klSeries = [
+        { label: "kl_v1", color: "#4f46e5", points: run.steps.filter(s => s.kl_v1 != null).map(s => ({ x: s.step, y: s.kl_v1 })) },
+        { label: "kl_v2", color: "#e11d48", dashed: true, points: run.steps.filter(s => s.kl_v2 != null).map(s => ({ x: s.step, y: s.kl_v2 })) },
+        { label: "entropy", color: "#0d9488", points: run.steps.filter(s => s.entropy != null).map(s => ({ x: s.step, y: s.entropy })) },
+      ];
+      const lenSeries = [
+        { label: "ac_tokens/turn", color: "#4f46e5", points: run.steps.filter(s => s.ac_tokens_per_turn != null).map(s => ({ x: s.step, y: s.ac_tokens_per_turn })) },
+        { label: "turns/ep ×10", color: "#d97706", points: run.steps.filter(s => s.turns_per_episode != null).map(s => ({ x: s.step, y: s.turns_per_episode * 10 })) },
+      ];
+
+      grid.innerHTML = `
+        <div class="card chart-card">
+          <div class="chart-header"><span class="chart-title">Rewards &amp; Task Metrics</span><div class="legend">${rewardSeries.map(s => `<span class="legend-item"><span class="legend-swatch" style="background:${s.color}"></span>${esc(s.label)}</span>`).join("")}</div></div>
+          <div class="svg-wrap" id="cReward"></div>
+        </div>
+        <div class="card chart-card">
+          <div class="chart-header"><span class="chart-title">Pre-Filter Group Composition per Step</span><div class="legend"><span class="legend-item"><span class="legend-swatch" style="background:#059669"></span>Mixed (kept)</span><span class="legend-item"><span class="legend-swatch" style="background:#f59e0b"></span>All Good</span><span class="legend-item"><span class="legend-swatch" style="background:#e11d48"></span>All Bad</span></div></div>
+          <div class="svg-wrap" id="cDrop"></div>
+        </div>
+        <div class="card chart-card">
+          <div class="chart-header"><span class="chart-title">Sampler-Trainer KL &amp; Policy Entropy</span><div class="legend">${klSeries.filter(s => s.points.length).map(s => `<span class="legend-item"><span class="legend-swatch" style="background:${s.color}"></span>${esc(s.label)}</span>`).join("")}</div></div>
+          <div class="svg-wrap" id="cKl"></div>
+        </div>
+        <div class="card chart-card">
+          <div class="chart-header"><span class="chart-title">Generation Length &amp; Turns</span><div class="legend">${lenSeries.filter(s => s.points.length).map(s => `<span class="legend-item"><span class="legend-swatch" style="background:${s.color}"></span>${esc(s.label)}</span>`).join("")}</div></div>
+          <div class="svg-wrap" id="cLen"></div>
+        </div>
+      `;
+      mountLineChart(document.getElementById("cReward"), { series: rewardSeries, checkpoints: run.checkpoints, smooth });
+      mountDropBarChart(document.getElementById("cDrop"), d.per_step_drop_stats);
+      mountLineChart(document.getElementById("cKl"), { series: klSeries, checkpoints: run.checkpoints, smooth, yFmt: v => v.toFixed(4) });
+      mountLineChart(document.getElementById("cLen"), { series: lenSeries, checkpoints: run.checkpoints, smooth, yFmt: v => v.toFixed(1) });
+
+      // Per-tag curves when non-trivial tags exist
+      const tagWrap = document.getElementById("tagGridWrap");
+      if (d.available_tags && d.available_tags.length > 0) {
+        const tagSeries = d.available_tags.slice(0, 7).map((tag, idx) => ({
+          label: tag,
+          color: PALETTE[idx % PALETTE.length],
+          points: run.steps.filter(s => s.tag_metrics[tag]?.["reward/total"] != null).map(s => ({ x: s.step, y: s.tag_metrics[tag]["reward/total"] })),
+        }));
+        tagWrap.innerHTML = `<div class="card chart-card"><div class="chart-header"><span class="chart-title">Per-Tag Reward (env/&lt;tag&gt;/reward/total)</span><div class="legend">${tagSeries.map(s => `<span class="legend-item"><span class="legend-swatch" style="background:${s.color}"></span>${esc(s.label)}</span>`).join("")}</div></div><div class="svg-wrap" id="cTags"></div></div>`;
+        mountLineChart(document.getElementById("cTags"), { series: tagSeries, checkpoints: run.checkpoints, smooth });
+      }
+    }
+    paintCurves(0);
+    document.getElementById("smoothSel").addEventListener("change", e => paintCurves(Number(e.target.value)));
+
+    // Gantt
+    if (hasTimings) {
+      const stepsAvail = Object.keys(run.timings).map(Number).sort((a, b) => a - b);
+      let gStep = d.max_straggler_step ?? stepsAvail[0];
+      const gCard = document.getElementById("ganttCard");
+      function paintGantt() {
+        const t = run.timings[String(gStep)];
+        const rolls = t.spans.filter(s => s.name === "do_group_rollout_and_filter_constant_reward" || s.name === "do_group_rollout").map(s => s.duration);
+        const mn = rolls.length ? Math.min(...rolls) : 0;
+        const mx = rolls.length ? Math.max(...rolls) : 0;
+        const avg = rolls.length ? rolls.reduce((a, b) => a + b, 0) / rolls.length : 0;
+        gCard.innerHTML = `
+          <div class="controls">
+            <label class="muted">Step:
+              <select id="gStepSel">${stepsAvail.map(s => `<option value="${s}" ${s === gStep ? "selected" : ""}>Step ${s}${run.timings[String(s)].straggler_ratio ? ` (${run.timings[String(s)].straggler_ratio.toFixed(2)}x)` : ""}</option>`).join("")}</select>
+            </label>
+            ${d.max_straggler_step != null ? `<button type="button" class="btn btn-outline" id="gWorstBtn">Worst straggler (step ${d.max_straggler_step})</button>` : ""}
+            <span class="muted" style="margin-left:auto">min=${mn.toFixed(1)}s &middot; mean=${avg.toFixed(1)}s &middot; max=<strong style="color:var(--red)">${mx.toFixed(1)}s</strong> &middot; train=${(t.train_wall ?? 0).toFixed(1)}s</span>
+          </div>
+          <div class="svg-wrap" id="ganttSvg"></div>
+        `;
+        mountGantt(document.getElementById("ganttSvg"), t);
+        document.getElementById("gStepSel").addEventListener("change", e => { gStep = Number(e.target.value); paintGantt(); });
+        const wb = document.getElementById("gWorstBtn");
+        if (wb) wb.addEventListener("click", () => { gStep = d.max_straggler_step; paintGantt(); });
+      }
+      paintGantt();
+    }
+
+    // Group explorer
+    if (hasGroups) {
+      const gSteps = Object.keys(run.groups_by_step).map(Number).sort((a, b) => a - b);
+      let selStep = gSteps[0];
+      let statusFilter = "all";
+      const openGroups = new Set();
+      const card = document.getElementById("groupsCard");
+      function paintGroups() {
+        const all = run.groups_by_step[String(selStep)] || [];
+        const rows = all.filter(g => {
+          if (statusFilter === "kept") return g.kept;
+          if (statusFilter === "dropped") return !g.kept;
+          if (statusFilter === "all_good") return g.status === "all_good";
+          if (statusFilter === "all_bad") return g.status === "all_bad";
+          return true;
+        });
+        const tbody = rows.map(g => {
+          const gk = `${selStep}:${g.group_idx}`;
+          const isOpen = openGroups.has(gk);
+          const pillCls = g.kept ? "pass" : (g.status === "all_good" ? "warn" : "fail");
+          const dots = g.trajectories.map(tr => {
+            const col = tr.reward >= 0.99 ? "#059669" : (tr.reward <= 0.01 ? "#e11d48" : "#d97706");
+            return `<span class="rdot" title="traj ${tr.traj_idx}: r=${tr.reward}" style="background:${col}"></span>`;
+          }).join("");
+          const mult = g.unique_final_ob_len > 0 ? (g.sum_ob_len / g.unique_final_ob_len).toFixed(2) + "x" : "—";
+          let html = `<tr class="clickable grow" data-gk="${gk}">
+            <td class="mono">#${g.group_idx}</td>
+            <td><span class="pill ${pillCls}">${g.kept ? "KEPT" : "DROPPED"} &middot; ${esc(g.status)}</span></td>
+            <td><span class="reward-dots">${dots}</span> <span class="mono muted">${g.mean_reward.toFixed(2)}</span></td>
+            <td class="num">${g.mean_turns.toFixed(1)}</td>
+            <td class="num">${fmtInt(g.sum_ob_len)} <span class="muted">(${mult})</span></td>
+            <td class="num">${fmtInt(g.sum_ac_len)}</td>
+          </tr>`;
+          if (isOpen) {
+            const trHtml = g.trajectories.map(tr => `
+              <div style="margin-bottom:6px;padding:6px 8px;background:var(--surface);border:1px solid var(--border);border-radius:6px">
+                <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
+                  <span><strong>traj ${tr.traj_idx}</strong> &middot; reward=<span class="mono">${tr.reward}</span> &middot; final_ob=<span class="mono">${tr.final_ob_len}</span></span>
+                  <span class="mono muted">${Object.entries(tr.metrics).map(([k,v]) => `${k}=${v}`).join("  ")}</span>
+                </div>
+                <div class="mono muted" style="margin-top:4px">turns: ${tr.turns.map((tn, i) => `t${i}[ob=${tn.ob}, ac=${tn.ac}]`).join(" -> ")}</div>
+              </div>
+            `).join("");
+            html += `<tr class="detail-row"><td colspan="6">${trHtml}</td></tr>`;
+          }
+          return html;
+        }).join("");
+
+        card.innerHTML = `
+          <div class="controls">
+            <label class="muted">Step:
+              <select id="grpStepSel">${gSteps.map(s => `<option value="${s}" ${s === selStep ? "selected" : ""}>Step ${s}</option>`).join("")}</select>
+            </label>
+            ${[
+              ["all", `All (${all.length})`],
+              ["kept", `Kept (${all.filter(g => g.kept).length})`],
+              ["dropped", `Dropped (${all.filter(g => !g.kept).length})`],
+              ["all_good", "All Good"],
+              ["all_bad", "All Bad"],
+            ].map(([k, lbl]) => `<button type="button" class="btn gfbtn ${statusFilter === k ? "active" : ""}" data-f="${k}">${lbl}</button>`).join("")}
+          </div>
+          <div style="overflow-x:auto">
+            <table>
+              <thead><tr><th>Group</th><th>Filter Status</th><th>Rollout Rewards (mean)</th><th class="num">Mean Turns</th><th class="num">Sum ob_len (mult)</th><th class="num">Sum ac_len</th></tr></thead>
+              <tbody>${tbody || `<tr><td colspan="6" class="muted" style="text-align:center;padding:18px">No groups match filter.</td></tr>`}</tbody>
+            </table>
+          </div>
+        `;
+        card.querySelector("#grpStepSel").addEventListener("change", e => { selStep = Number(e.target.value); paintGroups(); });
+        card.querySelectorAll(".gfbtn").forEach(b => b.addEventListener("click", () => { statusFilter = b.dataset.f; paintGroups(); }));
+        card.querySelectorAll(".grow").forEach(tr => tr.addEventListener("click", () => {
+          const gk = tr.dataset.gk;
+          if (openGroups.has(gk)) openGroups.delete(gk); else openGroups.add(gk);
+          paintGroups();
+        }));
+      }
+      paintGroups();
+    }
+
+    if (DATA.eval_diff) {
+      renderEvalDiffSection(DATA.eval_diff, document.getElementById("evaldiff"));
+    }
+  }
+
+  // MODE 2: Standalone eval diff
+  function renderDiffMode() {
+    const diff = DATA.eval_diff;
+    renderTopbar(
+      `tinker-inspect diff / ${diff.base_label} -> ${diff.final_label}`,
+      [{ text: `${diff.num_tasks} paired tasks` }],
+      [["#evaldiff", "Eval Diff"]]
+    );
+    const app = document.getElementById("app");
+    app.innerHTML = `<section class="section" id="evaldiff" style="margin-top:0"></section><footer class="footer"><span>Generated by <strong>tinker-inspect v${esc(DATA.version)}</strong></span></footer>`;
+    renderEvalDiffSection(diff, document.getElementById("evaldiff"));
+  }
+
+  // MODE 3: Two-run comparison
+  function renderCompareMode() {
+    const a = DATA.run_a, b = DATA.run_b;
+    const da = a.diagnostics, db = b.diagnostics;
+    renderTopbar(
+      `tinker-inspect compare / ${a.name} vs ${b.name}`,
+      [{ text: `${da.num_steps} vs ${db.num_steps} steps` }],
+      [["#summary", "Summary"], ["#overlay", "Overlaid Curves"]]
+    );
+    const app = document.getElementById("app");
+    const rows = [
+      ["Model", da.model_name || "n/a", db.model_name || "n/a"],
+      ["Steps", da.num_steps, db.num_steps],
+      ["Wall Time", fmtDur(da.total_wall_seconds), fmtDur(db.total_wall_seconds)],
+      ["Max |KL v1|", da.max_abs_kl_v1 != null ? da.max_abs_kl_v1.toExponential(2) : "n/a", db.max_abs_kl_v1 != null ? db.max_abs_kl_v1.toExponential(2) : "n/a"],
+      ["Dropped Groups", fmtPct(da.discarded_group_fraction), fmtPct(db.discarded_group_fraction)],
+      ["Multi-Turn Prefill", `${fmtInt(da.tokens.prefill_total)}${da.tokens.prefill_multiplier ? ` (${da.tokens.prefill_multiplier.toFixed(2)}x)` : ""}`, `${fmtInt(db.tokens.prefill_total)}${db.tokens.prefill_multiplier ? ` (${db.tokens.prefill_multiplier.toFixed(2)}x)` : ""}`],
+      ["Sampled Tokens", fmtInt(da.tokens.sampled_total), fmtInt(db.tokens.sampled_total)],
+      ["Median Straggler Ratio", da.median_straggler_ratio ? da.median_straggler_ratio.toFixed(2) + "x" : "n/a", db.median_straggler_ratio ? db.median_straggler_ratio.toFixed(2) + "x" : "n/a"],
+      ["Final reward/total", a.steps.at(-1)?.reward_total?.toFixed(3) ?? "n/a", b.steps.at(-1)?.reward_total?.toFixed(3) ?? "n/a"],
+    ];
+    app.innerHTML = `
+      <section class="section" id="summary" style="margin-top:0">
+        <div class="section-head"><h2>Side-by-Side Summary</h2></div>
+        <div class="card">
+          <table>
+            <thead><tr><th>Metric</th><th class="num">${esc(a.name)}</th><th class="num">${esc(b.name)}</th></tr></thead>
+            <tbody>${rows.map(([k, va, vb]) => `<tr><td>${esc(k)}</td><td class="num">${esc(va)}</td><td class="num">${esc(vb)}</td></tr>`).join("")}</tbody>
+          </table>
+        </div>
+      </section>
+      <section class="section" id="overlay">
+        <div class="section-head"><h2>Overlaid Curves</h2><div class="legend"><span class="legend-item"><span class="legend-swatch" style="background:#4f46e5"></span>${esc(a.name)}</span><span class="legend-item"><span class="legend-swatch" style="background:#0d9488"></span>${esc(b.name)} (dashed)</span></div></div>
+        <div class="chart-grid">
+          <div class="card chart-card"><div class="chart-header"><span class="chart-title">reward/total</span></div><div class="svg-wrap" id="cmpReward"></div></div>
+          <div class="card chart-card"><div class="chart-header"><span class="chart-title">ac_tokens_per_turn</span></div><div class="svg-wrap" id="cmpLen"></div></div>
+          <div class="card chart-card"><div class="chart-header"><span class="chart-title">optim/entropy</span></div><div class="svg-wrap" id="cmpEnt"></div></div>
+          <div class="card chart-card"><div class="chart-header"><span class="chart-title">Step Wall Time (s)</span></div><div class="svg-wrap" id="cmpTime"></div></div>
+        </div>
+      </section>
+      <footer class="footer"><span>Generated by <strong>tinker-inspect v${esc(DATA.version)}</strong></span></footer>
+    `;
+    const pair = (getter) => [
+      { label: a.name, color: "#4f46e5", points: a.steps.filter(s => getter(s) != null).map(s => ({ x: s.step, y: getter(s) })) },
+      { label: b.name, color: "#0d9488", dashed: true, points: b.steps.filter(s => getter(s) != null).map(s => ({ x: s.step, y: getter(s) })) },
+    ];
+    mountLineChart(document.getElementById("cmpReward"), { series: pair(s => s.reward_total) });
+    mountLineChart(document.getElementById("cmpLen"), { series: pair(s => s.ac_tokens_per_turn), yFmt: v => v.toFixed(1) });
+    mountLineChart(document.getElementById("cmpEnt"), { series: pair(s => s.entropy) });
+    mountLineChart(document.getElementById("cmpTime"), { series: pair(s => s.time_total), yFmt: v => v.toFixed(1) + "s" });
+  }
+
+  if (DATA.mode === "run") renderRunMode();
+  else if (DATA.mode === "diff") renderDiffMode();
+  else if (DATA.mode === "compare") renderCompareMode();
+})();
+</script>
+</body>
+</html>
