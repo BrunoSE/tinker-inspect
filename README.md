@@ -23,39 +23,50 @@ Browse the interactive showcase at **[brunose.github.io/tinker-inspect](https://
 
 ## Example terminal output
 
-Real output from inspecting a 16-step free-tier `Inkling-2-Mini:peft:65536:free` RL run with paired before/after held-out evaluations attached:
+Real output from inspecting a 16-step free-tier multi-turn `run_python` TIR RL run (`Inkling-2-Mini:peft:65536:free`) with paired before/after OOD Olympiad `1/8` evaluations attached:
 
 ```text
-tinker-inspect :: inkling2_polaris_rl_v2  (thinkingmachines/Inkling-2-Mini:peft:65536:free)
-  steps=16  |  wall=24.1m  |  lr=0.00015  |  lora_rank=32  |  checkpoints=3
+tinker-inspect :: inkling2_polaris_tir_rl  (thinkingmachines/Inkling-2-Mini:peft:65536:free)
+  steps=16  |  wall=30.2m  |  lr=0.00015  |  lora_rank=32  |  checkpoints=3
 
 Health Checks
-  [PASS] Sampler-Trainer KL0 Check: Exact KL0 (0.000000 across all steps)
-  [WARN] Constant-Reward Group Drop Rate: 63% of groups dropped (47/128 kept; 56 all-good, 25 all-bad)
-  [PASS] Straggler & Wall-Clock Bottleneck: Sampling is 83% of wall time; median straggler ratio 1.54x (peak 2.02x at step 15)
-  [PASS] Response Length Stability: Action tokens/turn stable (-11.0% early vs late)
-  [WARN] Max-Token Truncation: 19.8% of turns hit max_tokens=4096 (203/1024)
+  [PASS] Sampler-Trainer KL0 Check: Exact KL0 (0.000000 across all steps) (max mismatch_frac=0.0000, max |logp_diff|=0.00e+00)
+  [WARN] Constant-Reward Group Drop Rate: 52% of groups dropped (61/128 kept; 43 all-good, 24 all-bad)
+  [INFO] Multi-Turn Prefill Amplification: 1.86x prefill-to-unique-token ratio (55% measured cache hits)
+  [WARN] Straggler & Sampling Idle Time: 50% sampling idle wait (median straggler 2.01x, peak 3.77x at step 12; sampling 75% of wall) (policy_sample=14.18s/turn, env_step=0.13s/turn)
+  [PASS] Response Length Stability: Action tokens/turn (pre-filter) stable (-8.9% early vs late)
+  [WARN] Episode Token-Limit Truncation: 10.2% of episodes hit token limit (104/1024) (reward: 0.00 truncated vs 0.70 untruncated)
+  [PASS] Multi-Turn Tool Execution: (prefilter) 48.1% used tools, 0.94 calls/ep, 0.26 errors/ep, 11.4% hit max_turns
 
 Tokens & Cost (native)
-  prefill=139.0k  cacheable=43%
-  sampled=2.37M  trained=1.14M  discarded_sampling=54%
+  prefill=2.43M (1.86x unique 1.31M)  Measured cache hits=55%
+  sampled=1.91M  trained=1.41M  discarded_sampling=37%  discarded_action_only=41%
   estimated_usd=$0.00  (discarded=$0.00)  [metrics.jsonl (native)]
 
-Training Progress (step 0 -> final)
-  reward/total      0.875 -> 0.125 (-0.750)
-  outcome           0.875 -> 0.125 (-0.750)
-  success           0.875 -> 0.125 (-0.750)
-  ac_tokens/turn    3058.2 -> 4092.9
+Sampling Timing & Stragglers
+  idle_wait=50%  |  median_straggler=2.01x  |  policy_sample=14.18s  |  env_step=0.13s
 
-Eval Diff :: Base Inkling-2-Mini (free) -> RL Inkling-2-Mini (free) (64 paired tasks)
+Multi-Turn Tool & Cache (prefilter)
+  turns/ep=1.94  |  used_tool=48%  |  calls/ep=0.94  |  errors/ep=0.26  |  max_turns=11.4%  |  trunc_ep=10.2%  |  cache_hit=55%->60%
+  trunc_reward=0.000 vs untrunc_reward=0.696
+
+Training Progress (first 4 vs last 4 steps, pre-filter all sampled)
+  reward (mean)     0.527 -> 0.703 (+0.176)
+  reward (trained)  0.604 -> 0.607 (+0.003)  [post-filter kept, pooled]
+  ac_tokens/turn    1061.8 -> 967.7  (pre-filter)
+
+Eval Diff :: Base Inkling-2-Mini + run_python (free) -> 16-Step TIR RL Inkling-2-Mini + run_python (free) (48 paired tasks)
   metric                base   final    delta              95% CI        W/R/T
-  success              0.562   0.672   +0.109    [+0.023, +0.203]      15/3/46
-  outcome              0.562   0.672   +0.109    [+0.023, +0.203]      15/3/46
-  correct              0.562   0.672   +0.109    [+0.023, +0.203]      15/3/46
-  reward               0.562   0.672   +0.109    [+0.023, +0.203]      15/3/46
-  format_ok            0.789   0.828   +0.039    [-0.039, +0.117]       8/3/53
-  shaped_reward        0.562   0.672   +0.109    [+0.023, +0.203]      15/3/46
-  answer_chars=+0.2%  |  turns=+0.0%
+  success              0.312   0.469   +0.156    [+0.062, +0.260]      15/3/30
+  format_ok            0.583   0.802   +0.219    [+0.104, +0.333]      16/1/31
+  output_tokens      2698.021 1780.500 -917.521 [-1148.948, -695.542]    2/45/1
+  tool_errors          0.344   0.219   -0.125    [-0.229, -0.021]      4/14/30
+  (identical to success: outcome, correct, reward, shaped_reward)
+  answer_chars=+1.1%  |  turns=-12.1%
+  completed=58.3%->80.2% (+21.9pp)  |  success|completed=53.6%->58.4% (+4.9pp)
+  ended_how (base)  : completed=56 (58%, succ=54%), token_limit=28 (29%, succ=0%), turn_limit=12 (12%, succ=0%)
+  ended_how (final) : completed=77 (80%, succ=58%), token_limit=11 (11%, succ=0%), turn_limit=8 (8%, succ=0%)
+  bootstrap: n=10000, seed=42
 ```
 
 ## Why this exists
@@ -90,10 +101,11 @@ tinker-inspect /path/to/log_dir \
 tinker-inspect /path/to/log_dir --json --no-html
 tinker-inspect /path/to/log_dir --strict --no-html
 
-# Standalone paired eval diff (verifiers v1, git_tool_rl, legacy vf-eval, or rollout summaries)
-tinker-inspect diff base_heldout.jsonl final_heldout.jsonl --sanitize-paths --out diff.html
+# Standalone paired eval diff (with optional cluster bootstrap & CI regression gate)
+tinker-inspect diff base_heldout.jsonl final_heldout.jsonl \
+  --cluster-by family --fail-if-regression success --sanitize-paths --out diff.html
 
-# Overlay two Tinker RL training runs side-by-side
+# Overlay two Tinker RL training runs side-by-side (HTML or --json)
 tinker-inspect compare run_a/ run_b/ --sanitize-paths --out compare.html
 
 # Compare 3+ checkpoints or methods as a paired progression curve + Pareto + task heatmap

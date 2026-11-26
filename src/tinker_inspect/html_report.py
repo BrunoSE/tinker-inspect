@@ -50,6 +50,9 @@ def _serialize_run_block(
     *,
     sanitize_paths: bool = False,
 ) -> dict[str, Any]:
+    raw_max_tokens = run.config.get("max_tokens")
+    max_tokens = raw_max_tokens if isinstance(raw_max_tokens, int) and raw_max_tokens > 0 else None
+
     steps_out: list[dict[str, Any]] = []
     for s in run.steps:
         steps_out.append(
@@ -60,6 +63,8 @@ def _serialize_run_block(
                 "reward_total": s.reward_total,
                 "kl_v1": s.kl_v1,
                 "kl_v2": s.kl_v2,
+                "sample_train_mismatch_frac": s.sample_train_mismatch_frac,
+                "sample_train_max_abs_diff": s.sample_train_max_abs_diff,
                 "entropy": s.entropy,
                 "kept_episodes": s.kept_episodes,
                 "kept_turns": s.kept_turns,
@@ -69,6 +74,7 @@ def _serialize_run_block(
                 "total_ac_tokens": s.total_ac_tokens,
                 "total_ob_tokens": s.total_ob_tokens,
                 "env_metrics": s.env_metrics,
+                "test_metrics": s.test_metrics,
                 "tag_metrics": s.tag_metrics,
                 "time_total": s.time_metrics.get("total"),
                 "time_sampling": s.time_metrics.get("sampling"),
@@ -112,14 +118,27 @@ def _serialize_run_block(
                 "sum_ob_len": g.sum_ob_len,
                 "sum_ac_len": g.sum_ac_len,
                 "unique_final_ob_len": g.unique_final_ob_len,
+                "trunc_episodes": g.trunc_episodes,
+                "max_turns_episodes": g.max_turns_episodes,
+                "tool_errors_total": round(g.tool_errors_total, 4),
                 "trajectories": [
                     {
                         "traj_idx": tr.traj_idx,
                         "reward": round(tr.total_reward, 4),
+                        "end_state": tr.end_state(max_tokens),
                         "metrics": {k: round(v, 4) for k, v in tr.trajectory_metrics.items()},
                         "final_ob_len": tr.final_ob_len,
                         "turns": [
-                            {"ob": tn.ob_len, "ac": tn.ac_len, "r": round(tn.reward, 4)}
+                            {
+                                "ob": tn.ob_len,
+                                "ac": tn.ac_len,
+                                "r": round(tn.reward, 4),
+                                **(
+                                    {"metrics": {k: round(v, 4) for k, v in tn.metrics.items()}}
+                                    if tn.metrics
+                                    else {}
+                                ),
+                            }
                             for tn in tr.steps
                         ],
                     }
@@ -128,6 +147,10 @@ def _serialize_run_block(
             }
             for g in groups
         ]
+
+    logtree_out: dict[str, list[dict[str, Any]]] = {
+        str(step_idx): groups for step_idx, groups in sorted(run.logtree_groups.items())
+    }
 
     block: dict[str, Any] = {
         "name": run.name,
@@ -146,6 +169,8 @@ def _serialize_run_block(
         ],
         "timings": timings_out,
         "groups_by_step": groups_out,
+        "log_summary": asdict(run.log_summary) if run.log_summary is not None else None,
+        "logtree_groups": logtree_out,
         "code_diff": run.code_diff,
         "warnings": run.warnings,
     }
@@ -163,6 +188,17 @@ def _serialize_eval_diff(diff: EvalDiffSummary, *, sanitize_paths: bool = False)
             "output_tokens": ep.output_tokens,
             "final_answer_chars": ep.final_answer_chars,
             "errors": ep.errors,
+            "end_state": ep.end_state,
+            "stop_reason": ep.stop_reason,
+            "parse_ok": ep.parse_ok,
+            "truncated_thinking": ep.truncated_thinking,
+            "hit_max_turns": ep.hit_max_turns,
+            "gold_answer": _truncate(ep.gold_answer, 400),
+            "episode_type": ep.episode_type,
+            "effort": ep.effort,
+            "max_tokens": ep.max_tokens,
+            "max_turns": ep.max_turns,
+            "graded": ep.graded,
             "messages": [
                 {
                     "role": m.role,
@@ -189,6 +225,23 @@ def _serialize_eval_diff(diff: EvalDiffSummary, *, sanitize_paths: bool = False)
         "final_total_episodes": diff.final_total_episodes,
         "base_failed": diff.base_failed,
         "final_failed": diff.final_failed,
+        "base_unmatched_tasks": diff.base_unmatched_tasks,
+        "final_unmatched_tasks": diff.final_unmatched_tasks,
+        "base_end_states": diff.base_end_states,
+        "final_end_states": diff.final_end_states,
+        "base_end_state_success": {k: [v[0], v[1]] for k, v in diff.base_end_state_success.items()},
+        "final_end_state_success": {
+            k: [v[0], v[1]] for k, v in diff.final_end_state_success.items()
+        },
+        "answered_base_rate": diff.answered_base_rate,
+        "answered_final_rate": diff.answered_final_rate,
+        "correct_given_answered_base": diff.correct_given_answered_base,
+        "correct_given_answered_final": diff.correct_given_answered_final,
+        "cluster_by": diff.cluster_by,
+        "num_clusters": diff.num_clusters,
+        "n_boot": diff.n_boot,
+        "seed": diff.seed,
+        "warnings": diff.warnings,
         "primary_metric": diff.primary_metric,
         "answer_chars_change_pct": diff.answer_chars_change_pct,
         "turns_change_pct": diff.turns_change_pct,
@@ -197,6 +250,8 @@ def _serialize_eval_diff(diff: EvalDiffSummary, *, sanitize_paths: bool = False)
             {
                 "task_key": t.task_key,
                 "task_id": t.task_id,
+                "cluster_id": t.cluster_id,
+                "gold_answer": _truncate(t.gold_answer, 400),
                 "prompt": _truncate(t.prompt, 1200) or "",
                 "base_count": t.base_count,
                 "final_count": t.final_count,
@@ -242,6 +297,7 @@ def build_run_report_html(
     diag: RunDiagnostics,
     *,
     eval_diff: EvalDiffSummary | None = None,
+    extra_eval_diffs: list[EvalDiffSummary] | None = None,
     sanitize_paths: bool = False,
 ) -> str:
     payload: dict[str, Any] = {
@@ -253,6 +309,10 @@ def build_run_report_html(
             if eval_diff is not None
             else None
         ),
+        "extra_eval_diffs": [
+            _serialize_eval_diff(ed, sanitize_paths=sanitize_paths)
+            for ed in (extra_eval_diffs or [])
+        ],
     }
     return _assemble_html(f"tinker-inspect — {run.name}", payload)
 

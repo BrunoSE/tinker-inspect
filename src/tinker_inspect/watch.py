@@ -9,7 +9,13 @@ from typing import Any
 
 from tinker_inspect.diagnostics import analyze_run
 from tinker_inspect.loader import load_run
-from tinker_inspect.schema import RunData, RunDiagnostics, Severity, TokenCostRates
+from tinker_inspect.schema import (
+    PrefilterStepSummary,
+    RunData,
+    RunDiagnostics,
+    Severity,
+    TokenCostRates,
+)
 from tinker_inspect.terminal import has_failures
 
 _ANSI = {
@@ -60,22 +66,89 @@ def _overall_status(diag: RunDiagnostics) -> Severity:
     return "pass"
 
 
-def _step_trunc_pct(run: RunData, step_idx: int) -> float | None:
-    max_tokens = run.config.get("max_tokens")
+def _find_prefilter_step(diag: RunDiagnostics, step_idx: int) -> PrefilterStepSummary | None:
+    return next((p for p in diag.prefilter_steps if p.step == step_idx), None)
+
+
+def _step_episode_trunc_pct(
+    run: RunData,
+    pf: PrefilterStepSummary | None,
+    step_idx: int,
+) -> float | None:
+    if pf is not None and pf.trunc_episode_rate is not None:
+        return pf.trunc_episode_rate * 100.0
     groups = run.groups_by_step.get(step_idx)
-    if not isinstance(max_tokens, int) or max_tokens <= 0 or not groups:
+    if not groups:
         return None
-    total_turns = 0
-    trunc_turns = 0
+    raw_max_tokens = run.config.get("max_tokens")
+    max_tokens = raw_max_tokens if isinstance(raw_max_tokens, int) and raw_max_tokens > 0 else None
+    total_eps = 0
+    trunc_eps = 0
     for g in groups:
         for tr in g.trajectories:
-            for turn in tr.steps:
-                total_turns += 1
-                if turn.ac_len >= max_tokens:
-                    trunc_turns += 1
-    if total_turns == 0:
+            total_eps += 1
+            if tr.end_state(max_tokens) == "token_limit":
+                trunc_eps += 1
+    if total_eps == 0:
         return None
-    return (trunc_turns / total_turns) * 100.0
+    return (trunc_eps / total_eps) * 100.0
+
+
+def _step_status(
+    run: RunData,
+    diag: RunDiagnostics,
+    step_idx: int,
+    *,
+    pf: PrefilterStepSummary | None,
+    drop_row: dict[str, Any] | None,
+    trunc_pct: float | None,
+) -> Severity:
+    """Compute a per-step status badge rather than stamping final cumulative status on all steps."""
+    step_rec = next((s for s in run.steps if s.step == step_idx), None)
+    status: Severity = "pass"
+
+    def _bump(sev: Severity) -> None:
+        nonlocal status
+        rank = {"pass": 0, "info": 1, "warn": 2, "fail": 3}
+        if rank[sev] > rank[status]:
+            status = sev
+
+    if step_rec is not None:
+        on_policy = (
+            run.config.get("num_substeps", 1) in (1, None)
+            and not run.config.get("stream_minibatch_config")
+            and not run.config.get("async_config")
+        )
+        kl1 = abs(step_rec.kl_v1) if step_rec.kl_v1 is not None else 0.0
+        kl2 = abs(step_rec.kl_v2) if step_rec.kl_v2 is not None else 0.0
+        if on_policy and max(kl1, kl2) > 1e-4:
+            _bump("fail")
+        elif on_policy and max(kl1, kl2) > 1e-6:
+            _bump("warn")
+        if step_rec.sample_train_mismatch_frac is not None:
+            if step_rec.sample_train_mismatch_frac > 0.05:
+                _bump("fail")
+            elif step_rec.sample_train_mismatch_frac > 0.005:
+                _bump("warn")
+
+    if drop_row is not None:
+        drop_frac = float(drop_row.get("drop_frac", 0.0))
+        if drop_frac >= 1.0:
+            _bump("fail")
+        elif drop_frac >= 0.70:
+            _bump("warn")
+
+    if trunc_pct is not None and trunc_pct >= 25.0:
+        _bump("warn")
+
+    if pf is not None and pf.max_turns_rate is not None and pf.max_turns_rate >= 0.25:
+        _bump("warn")
+
+    for f in diag.findings:
+        if f.step == step_idx and f.severity in ("warn", "fail"):
+            _bump(f.severity)
+
+    return status
 
 
 def format_watch_line(
@@ -87,12 +160,15 @@ def format_watch_line(
 ) -> str:
     """Format a concise single-line watch summary for a newly observed training step."""
     step_rec = next((s for s in run.steps if s.step == step_idx), None)
+    pf = _find_prefilter_step(diag, step_idx)
 
-    rew_s = (
-        f"{step_rec.reward_total:.3f}"
-        if step_rec is not None and step_rec.reward_total is not None
-        else "n/a"
-    )
+    if pf is not None:
+        rew_s = f"{pf.mean_reward:.3f}"
+    elif step_rec is not None and step_rec.reward_total is not None:
+        rew_s = f"{step_rec.reward_total:.3f}"
+    else:
+        rew_s = "n/a"
+
     kl_s = f"{step_rec.kl_v1:.2e}" if step_rec is not None and step_rec.kl_v1 is not None else "n/a"
 
     drop_row = next((r for r in diag.per_step_drop_stats if r.get("step") == step_idx), None)
@@ -104,14 +180,15 @@ def format_watch_line(
     else:
         kept_s = "n/a"
 
-    trunc_pct = _step_trunc_pct(run, step_idx)
+    trunc_pct = _step_episode_trunc_pct(run, pf, step_idx)
     trunc_s = f"{trunc_pct:.1f}%" if trunc_pct is not None else "n/a"
 
-    ac_s = (
-        f"{step_rec.ac_tokens_per_turn:.1f}"
-        if step_rec is not None and step_rec.ac_tokens_per_turn is not None
-        else "n/a"
-    )
+    if pf is not None and pf.ac_tokens_per_turn > 0:
+        ac_s = f"{pf.ac_tokens_per_turn:.1f}"
+    elif step_rec is not None and step_rec.ac_tokens_per_turn is not None:
+        ac_s = f"{step_rec.ac_tokens_per_turn:.1f}"
+    else:
+        ac_s = "n/a"
 
     wall_val: float | None = None
     if step_rec is not None:
@@ -120,7 +197,14 @@ def format_watch_line(
         wall_val = run.timings[step_idx].total_wall
     wall_s = f"{wall_val:.1f}s" if wall_val is not None else "n/a"
 
-    status = _overall_status(diag)
+    status = _step_status(
+        run,
+        diag,
+        step_idx,
+        pf=pf,
+        drop_row=drop_row,
+        trunc_pct=trunc_pct,
+    )
     tag, sty = _SEV_STYLE[status]
     badge = _c(f"[{tag}]", sty, color=color)
 
@@ -190,49 +274,68 @@ def watch_run(
                         _emit(format_watch_line(run, diag, step_rec.step, color=color))
                         last_step = step_rec.step
 
-                for f in diag.findings:
-                    if f.severity not in ("warn", "fail"):
-                        continue
-                    key = (f.check_id, f.severity, f.headline)
-                    if key not in seen_alerts:
-                        seen_alerts.add(key)
-                        tag, sty = _SEV_STYLE[f.severity]
-                        _emit(f"  {_c(f'[{tag}]', sty, color=color)} {f.title}: {f.headline}")
-
-                if fail_fast and has_failures(diag, fail_on_warn=fail_on_warn):
-                    _emit(
-                        _c(
-                            "FAIL-FAST TRIGGERED: health check threshold breached; exiting 2.",
-                            "red",
-                            color=color,
-                        )
-                    )
-                    return 2
-
-                if (
+                is_complete = (
                     run.summary_step is not None and run.summary_step.raw.get("step") is not None
-                ) or any(c.name == "final" for c in run.checkpoints):
+                ) or any(c.name == "final" for c in run.checkpoints)
+
+                if not is_complete:
+                    for f in diag.findings:
+                        if f.severity not in ("warn", "fail"):
+                            continue
+                        key = (f.check_id, f.severity, f.headline)
+                        if key not in seen_alerts:
+                            seen_alerts.add(key)
+                            tag, sty = _SEV_STYLE[f.severity]
+                            _emit(f"  {_c(f'[{tag}]', sty, color=color)} {f.title}: {f.headline}")
+
+                    if fail_fast and has_failures(diag, fail_on_warn=fail_on_warn):
+                        _emit(
+                            _c(
+                                "FAIL-FAST TRIGGERED: health check threshold breached; exiting 2.",
+                                "red",
+                                color=color,
+                            )
+                        )
+                        return 2
+                else:
                     t = diag.tokens
                     cost_s = (
                         f"${t.estimated_cost_usd:.2f}"
                         if t.estimated_cost_usd is not None
                         else "n/a"
                     )
+                    cum_status = _overall_status(diag)
+                    ctag, csty = _SEV_STYLE[cum_status]
+                    cbadge = _c(f"[{ctag}]", csty, color=color)
                     _emit("")
                     _emit(
                         _c(
                             f"Run complete :: {run.name} | steps={diag.num_steps} | "
                             f"wall={_fmt_duration(diag.total_wall_seconds)} | "
                             f"sampled={_fmt_int(t.sampled_total)} | "
-                            f"trained={_fmt_int(t.trained_total)} | cost={cost_s}",
+                            f"trained={_fmt_int(t.trained_total)} | cost={cost_s} | ",
                             "bold",
                             color=color,
                         )
+                        + f"status={cbadge}"
                     )
                     for f in diag.findings:
+                        key = (f.check_id, f.severity, f.headline)
+                        if key in seen_alerts:
+                            continue
+                        seen_alerts.add(key)
                         tag, sty = _SEV_STYLE[f.severity]
                         _emit(f"  {_c(f'[{tag:4s}]', sty, color=color)} {f.title}: {f.headline}")
-                    return 2 if (fail_fast and has_failures(diag, fail_on_warn=fail_on_warn)) else 0
+                    if fail_fast and has_failures(diag, fail_on_warn=fail_on_warn):
+                        _emit(
+                            _c(
+                                "FAIL-FAST TRIGGERED: health check threshold breached; exiting 2.",
+                                "red",
+                                color=color,
+                            )
+                        )
+                        return 2
+                    return 0
 
             if max_polls is not None and polls >= max_polls:
                 return 0

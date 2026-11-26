@@ -3,17 +3,24 @@
 from __future__ import annotations
 
 import json
-import random
-import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from tinker_inspect.html_report import _safe_json_for_script, sanitize_value
 from tinker_inspect.schema import EvalEpisode
+from tinker_inspect.stats import (
+    DEFAULT_N_BOOT,
+    DEFAULT_SEED,
+    bootstrap_ci_mean_diff,
+    extract_cluster_ids,
+)
 
 _PRIMARY_METRIC_PRIORITY = ("success", "outcome", "correct", "reward")
-_HOME_PATH_RE = re.compile(r"(/Users/[^/\s\"']+|/home/[^/\s\"']+|[A-Za-z]:\\Users\\[^\\\s\"']+)")
+_OUTCOME_METRICS = frozenset(
+    {"success", "outcome", "correct", "format_ok", "outcome_facts", "success_facts"}
+)
 
 _ANSI = {
     "reset": "\033[0m",
@@ -36,55 +43,20 @@ def _mean(vals: list[float]) -> float:
     return sum(vals) / len(vals) if vals else 0.0
 
 
-def _sanitize_value(value: Any) -> Any:
-    if isinstance(value, str):
-        return _HOME_PATH_RE.sub("~", value)
-    if isinstance(value, list):
-        return [_sanitize_value(v) for v in value]
-    if isinstance(value, dict):
-        return {k: _sanitize_value(v) for k, v in value.items()}
-    return value
-
-
-def _safe_json_for_script(payload: dict[str, Any]) -> str:
-    raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
-    return (
-        raw.replace("<", "\\u003c")
-        .replace(">", "\\u003e")
-        .replace("&", "\\u0026")
-        .replace("\u2028", "\\u2028")
-        .replace("\u2029", "\\u2029")
-    )
-
-
-def _bootstrap_ci_mean_diff(
-    diffs: list[float],
-    *,
-    n_boot: int = 2000,
-    seed: int = 42,
-) -> tuple[float, float]:
-    n = len(diffs)
-    if n == 0:
-        return (0.0, 0.0)
-    if n == 1:
-        return (diffs[0], diffs[0])
-    rng = random.Random(seed)
-    samples: list[float] = []
-    for _ in range(n_boot):
-        total = 0.0
-        for _ in range(n):
-            total += diffs[rng.randrange(n)]
-        samples.append(total / n)
-    samples.sort()
-    lo_idx = max(0, int(0.025 * n_boot))
-    hi_idx = min(n_boot - 1, int(0.975 * n_boot))
-    return (samples[lo_idx], samples[hi_idx])
-
-
 def _episode_metrics(ep: EvalEpisode) -> dict[str, float]:
     out = dict(ep.metrics)
     out.setdefault("reward", ep.reward)
     return out
+
+
+def _score_for_metric(ep: EvalEpisode, metric: str) -> float:
+    """Return episode score for ``metric`` without mixing ``ep.reward`` into other metrics."""
+    m = _episode_metrics(ep)
+    if metric in m:
+        return float(m[metric])
+    if metric == "reward":
+        return float(ep.reward)
+    return 0.0
 
 
 def _episode_output_tokens(ep: EvalEpisode) -> float | None:
@@ -102,6 +74,24 @@ def _episode_used_tool(ep: EvalEpisode) -> float | None:
     if ep.messages:
         return 1.0 if any(bool(m.tool_calls) for m in ep.messages) else 0.0
     return None
+
+
+def _episode_excerpt(ep: EvalEpisode, limit: int = 380) -> str:
+    for msg in reversed(ep.messages):
+        if msg.role == "assistant":
+            parts: list[str] = []
+            if msg.tool_calls:
+                calls = ", ".join(str(tc.get("name", "tool")) for tc in msg.tool_calls)
+                parts.append(f"[tools: {calls}]")
+            if msg.content:
+                parts.append(msg.content.strip())
+            text = " ".join(parts).strip()
+            if text:
+                return text[:limit] + ("..." if len(text) > limit else "")
+    if ep.errors:
+        err = "; ".join(ep.errors)
+        return f"[error] {err[:limit]}"
+    return ""
 
 
 @dataclass
@@ -122,6 +112,7 @@ class SeriesPoint:
     mean_answer_chars: float
     used_tool_rate: float | None
     mean_tool_errors: float | None
+    end_states: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -134,6 +125,9 @@ class SeriesTaskRow:
     final_delta: float
     flipped_solved: bool
     flipped_regressed: bool
+    cluster_id: str | None = None
+    gold_answer: str | None = None
+    arm_summaries: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -143,6 +137,12 @@ class EvalSeriesSummary:
     num_tasks: int
     points: list[SeriesPoint]
     tasks: list[SeriesTaskRow]
+    unmatched_counts: list[int] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    cluster_by: str | None = None
+    num_clusters: int | None = None
+    n_boot: int = DEFAULT_N_BOOT
+    seed: int = DEFAULT_SEED
 
 
 def _group_episodes(
@@ -170,8 +170,10 @@ def analyze_eval_series(
     *,
     primary_metric: str | None = None,
     title: str | None = None,
-    n_boot: int = 2000,
-    seed: int = 42,
+    cluster_by: str | None = None,
+    n_boot: int = DEFAULT_N_BOOT,
+    seed: int = DEFAULT_SEED,
+    loader_warnings: list[str] | None = None,
 ) -> EvalSeriesSummary:
     """Analyze N >= 2 paired evaluation checkpoints/methods on their exact common task set."""
     if len(runs) < 2:
@@ -187,6 +189,47 @@ def analyze_eval_series(
 
     if not common_keys:
         raise ValueError("No common tasks found across evaluation series.")
+
+    unmatched_counts = [max(0, len(b) - len(common_keys)) for b in grouped]
+    warnings: list[str] = list(loader_warnings or [])
+    if any(u > 0 for u in unmatched_counts):
+        parts = [f"{runs[i][0]} ({u})" for i, u in enumerate(unmatched_counts) if u > 0]
+        warnings.append(f"Unmatched tasks ignored across arms: {', '.join(parts)}.")
+
+    # Check for attempt-count differences across arms
+    mismatch_tasks = 0
+    min_att, max_att = 10**9, 0
+    for k in common_keys:
+        counts = [len(b[k]) for b in grouped]
+        if len(set(counts)) > 1:
+            mismatch_tasks += 1
+            min_att = min(min_att, min(counts))
+            max_att = max(max_att, max(counts))
+    if mismatch_tasks > 0:
+        warnings.append(
+            f"Attempt counts differ across arms on {mismatch_tasks} tasks "
+            f"(range {min_att}..{max_att} attempts/task)."
+        )
+
+    # Check for config mismatches across arms on max_tokens / effort / max_turns
+    for cfg_field in ("max_tokens", "effort", "max_turns"):
+        arm_vals: list[tuple[str, set[Any]]] = []
+        for (lbl, _), bucket in zip(runs, grouped, strict=True):
+            vals = {
+                getattr(ep, cfg_field)
+                for k in common_keys
+                for ep in bucket[k]
+                if getattr(ep, cfg_field) is not None
+            }
+            if vals:
+                arm_vals.append((lbl, vals))
+        if len(arm_vals) >= 2:
+            distinct_sets = {tuple(sorted(v)) for _, v in arm_vals}
+            if len(distinct_sets) > 1:
+                desc = ", ".join(
+                    f"{lbl}={'/'.join(str(x) for x in sorted(v))}" for lbl, v in arm_vals
+                )
+                warnings.append(f"Config mismatch across arms ({cfg_field}): {desc}.")
 
     # Discover common numeric metrics across all runs (over paired episodes).
     run_metric_sets: list[set[str]] = []
@@ -210,16 +253,22 @@ def analyze_eval_series(
     else:
         chosen_primary = ordered_metrics[0] if ordered_metrics else "reward"
 
-    # Compute per-task primary means for every point (apples-to-apples over exact common_keys).
+    # Compute per-task primary means without falling back to ep.reward for non-reward metrics.
     task_primary_matrix: list[list[float]] = []
     for bucket in grouped:
         per_task: list[float] = []
         for k in common_keys:
-            vals = [_episode_metrics(ep).get(chosen_primary, ep.reward) for ep in bucket[k]]
+            vals = [_score_for_metric(ep, chosen_primary) for ep in bucket[k]]
             per_task.append(_mean(vals))
         task_primary_matrix.append(per_task)
 
     base_primary = task_primary_matrix[0]
+
+    cluster_ids: list[str] | None = None
+    num_clusters: int | None = None
+    if cluster_by:
+        rep_eps = [grouped[0][k][0] for k in common_keys]
+        cluster_ids, num_clusters = extract_cluster_ids(rep_eps, cluster_by)
 
     # Check if tool usage signals exist anywhere across the series.
     any_tool_signal = any(
@@ -245,7 +294,9 @@ def analyze_eval_series(
             wins, regs, ties = 0, 0, len(common_keys)
         else:
             delta = _mean(diffs)
-            ci_lo, ci_hi = _bootstrap_ci_mean_diff(diffs, n_boot=n_boot, seed=seed)
+            ci_lo, ci_hi = bootstrap_ci_mean_diff(
+                diffs, n_boot=n_boot, seed=seed, cluster_ids=cluster_ids
+            )
             wins = sum(1 for d in diffs if d > 1e-9)
             regs = sum(1 for d in diffs if d < -1e-9)
             ties = len(diffs) - wins - regs
@@ -254,7 +305,12 @@ def analyze_eval_series(
         for m in ordered_metrics:
             per_task_m: list[float] = []
             for k in common_keys:
-                mvals = [_episode_metrics(ep)[m] for ep in bucket[k] if m in _episode_metrics(ep)]
+                if m in _OUTCOME_METRICS or m == chosen_primary:
+                    mvals = [_score_for_metric(ep, m) for ep in bucket[k]]
+                else:
+                    mvals = [
+                        _episode_metrics(ep)[m] for ep in bucket[k] if m in _episode_metrics(ep)
+                    ]
                 if mvals:
                     per_task_m.append(_mean(mvals))
             if per_task_m:
@@ -283,6 +339,8 @@ def analyze_eval_series(
             if te_vals:
                 tool_err_tasks.append(_mean(te_vals))
 
+        end_states = dict(Counter(ep.end_state for ep in paired_eps))
+
         points.append(
             SeriesPoint(
                 label=label,
@@ -301,6 +359,7 @@ def analyze_eval_series(
                 mean_answer_chars=_mean(chars_tasks),
                 used_tool_rate=_mean(tool_use_tasks) if tool_use_tasks else None,
                 mean_tool_errors=_mean(tool_err_tasks) if tool_err_tasks else None,
+                end_states=end_states,
             )
         )
 
@@ -308,14 +367,29 @@ def analyze_eval_series(
     for t_idx, k in enumerate(common_keys):
         first_ep = grouped[0][k][0]
         prompt = first_ep.prompt
-        if not prompt:
-            for bucket in grouped[1:]:
-                if bucket[k] and bucket[k][0].prompt:
-                    prompt = bucket[k][0].prompt
-                    break
+        gold_answer = first_ep.gold_answer
+        for bucket in grouped[1:]:
+            if not prompt and bucket[k] and bucket[k][0].prompt:
+                prompt = bucket[k][0].prompt
+            if gold_answer is None and bucket[k] and bucket[k][0].gold_answer is not None:
+                gold_answer = bucket[k][0].gold_answer
         scores = [task_primary_matrix[p_idx][t_idx] for p_idx in range(len(runs))]
         deltas = [s - scores[0] for s in scores]
         final_delta = scores[-1] - scores[0]
+        arm_summaries: list[dict[str, Any]] = []
+        for p_idx, bucket in enumerate(grouped):
+            rep = bucket[k][0]
+            arm_summaries.append(
+                {
+                    "label": runs[p_idx][0],
+                    "score": round(scores[p_idx], 4),
+                    "end_state": rep.end_state,
+                    "turns": rep.num_turns,
+                    "out_tokens": rep.output_tokens,
+                    "stop_reason": rep.stop_reason,
+                    "excerpt": _episode_excerpt(rep),
+                }
+            )
         tasks.append(
             SeriesTaskRow(
                 task_key=first_ep.task_key,
@@ -326,6 +400,9 @@ def analyze_eval_series(
                 final_delta=final_delta,
                 flipped_solved=(scores[0] < 0.5 and scores[-1] >= 0.5),
                 flipped_regressed=(scores[0] >= 0.5 and scores[-1] < 0.5),
+                cluster_id=cluster_ids[t_idx] if cluster_ids is not None else None,
+                gold_answer=gold_answer,
+                arm_summaries=arm_summaries,
             )
         )
 
@@ -336,6 +413,12 @@ def analyze_eval_series(
         num_tasks=len(common_keys),
         points=points,
         tasks=tasks,
+        unmatched_counts=unmatched_counts,
+        warnings=warnings,
+        cluster_by=cluster_by,
+        num_clusters=num_clusters,
+        n_boot=n_boot,
+        seed=seed,
     )
 
 
@@ -349,7 +432,7 @@ def render_series_terminal(summary: EvalSeriesSummary, *, color: bool = True) ->
     has_fmt = any("format_ok" in p.metric_means for p in summary.points)
     has_tok = any(p.mean_output_tokens is not None for p in summary.points)
     has_tool = any(p.used_tool_rate is not None for p in summary.points)
-    label_w = max(14, min(32, max(len(p.label) for p in summary.points)))
+    label_w = max(14, max(len(p.label) for p in summary.points))
 
     lines: list[str] = [
         _c(
@@ -374,7 +457,7 @@ def render_series_terminal(summary: EvalSeriesSummary, *, color: bool = True) ->
     lines.append(_c(hdr, "dim", color=color))
 
     for idx, pt in enumerate(summary.points, start=1):
-        lbl = pt.label[:label_w]
+        lbl = pt.label
         if idx == 1:
             delta_raw = "base"
             delta_str = f"{delta_raw:>8s}"
@@ -418,6 +501,13 @@ def render_series_terminal(summary: EvalSeriesSummary, *, color: bool = True) ->
             color=color,
         )
     )
+    boot_str = f"  bootstrap: n={summary.n_boot}, seed={summary.seed}"
+    if summary.cluster_by:
+        c_sfx = f" ({summary.num_clusters} clusters)" if summary.num_clusters is not None else ""
+        boot_str += f", cluster_by={summary.cluster_by}{c_sfx}"
+    lines.append(_c(boot_str, "dim", color=color))
+    for w_msg in summary.warnings:
+        lines.append(_c(f"  WARN: {w_msg}", "yellow", color=color))
     return "\n".join(lines)
 
 
@@ -433,181 +523,244 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
       --surface: #ffffff;
       --surface-2: #f1f5f9;
       --text: #0f172a;
-      --muted: #475569;
+      --text-muted: #475569;
+      --muted: #64748b;
       --border: #e2e8f0;
-      --accent: #2563eb;
-      --accent-soft: #eff6ff;
+      --border-strong: #cbd5e1;
+      --accent: #4f46e5;
+      --accent-soft: #eef2ff;
       --pass: #059669;
-      --pass-bg: #dcfce7;
+      --pass-bg: #ecfdf5;
+      --pass-bd: #a7f3d0;
       --warn: #d97706;
-      --warn-bg: #fef3c7;
-      --fail: #dc2626;
-      --fail-bg: #fee2e2;
-      --shadow: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+      --warn-bg: #fffbeb;
+      --warn-bd: #fde68a;
+      --fail: #e11d48;
+      --fail-bg: #fff1f2;
+      --fail-bd: #fecdd3;
+      --shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
     }
-    @media (prefers-color-scheme: dark) {
-      :root:not([data-theme="light"]) {
-        --bg: #0b1120;
-        --surface: #111827;
-        --surface-2: #1e293b;
-        --text: #f1f5f9;
-        --muted: #94a3b8;
-        --border: #1f2937;
-        --accent: #60a5fa;
-        --accent-soft: #172554;
-        --pass: #34d399;
-        --pass-bg: #064e3b;
-        --warn: #fbbf24;
-        --warn-bg: #451a03;
-        --fail: #f87171;
-        --fail-bg: #450a0a;
-        --shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
-      }
-    }
-    :root[data-theme="dark"] {
-      --bg: #0b1120;
+    [data-theme="dark"] {
+      --bg: #0b0f19;
       --surface: #111827;
       --surface-2: #1e293b;
       --text: #f1f5f9;
+      --text-muted: #cbd5e1;
       --muted: #94a3b8;
       --border: #1f2937;
-      --accent: #60a5fa;
-      --accent-soft: #172554;
+      --border-strong: #334155;
+      --accent: #818cf8;
+      --accent-soft: rgba(99, 102, 241, 0.16);
       --pass: #34d399;
-      --pass-bg: #064e3b;
+      --pass-bg: rgba(16, 185, 129, 0.14);
+      --pass-bd: rgba(52, 211, 153, 0.35);
       --warn: #fbbf24;
-      --warn-bg: #451a03;
-      --fail: #f87171;
-      --fail-bg: #450a0a;
-      --shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+      --warn-bg: rgba(245, 158, 11, 0.14);
+      --warn-bd: rgba(251, 191, 36, 0.35);
+      --fail: #fb7185;
+      --fail-bg: rgba(244, 63, 94, 0.15);
+      --fail-bd: rgba(251, 113, 133, 0.35);
+      --shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-family: var(--sans);
+      font-size: 14px;
       background: var(--bg);
       color: var(--text);
       line-height: 1.5;
+      font-variant-numeric: tabular-nums;
     }
-    .wrap { max-width: 1180px; margin: 0 auto; padding: 1.75rem 1.25rem 3rem; }
-    header {
-      display: flex; flex-wrap: wrap; align-items: flex-start;
-      justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem;
+    .topbar {
+      position: sticky; top: 0; z-index: 40;
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 8px 20px; min-height: 46px;
+      display: flex; flex-wrap: nowrap; align-items: center;
+      justify-content: space-between; gap: 10px; overflow-x: auto;
     }
-    h1 { margin: 0; font-size: 1.55rem; font-weight: 800; letter-spacing: -0.02em; }
-    .sub { margin: 0.25rem 0 0; color: var(--muted); font-size: 0.9rem; }
-    .btn {
-      padding: 0.45rem 0.85rem; border-radius: 8px; border: 1px solid var(--border);
-      background: var(--surface); color: var(--text); font-size: 0.85rem; font-weight: 600;
-      cursor: pointer; box-shadow: var(--shadow);
+    .brand {
+      display: flex; align-items: center; gap: 8px;
+      min-width: 0; white-space: nowrap;
     }
-    .btn:hover, .btn.active { border-color: var(--accent); color: var(--accent); }
-    .btn.active { background: var(--accent-soft); }
+    .brand-dot {
+      width: 9px; height: 9px; border-radius: 3px;
+      background: var(--accent); flex-shrink: 0;
+    }
+    .brand-title {
+      font-weight: 650; font-size: 14px; letter-spacing: -0.01em;
+      overflow: hidden; text-overflow: ellipsis; max-width: 420px;
+    }
+    .pill {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 550;
+      border: 1px solid var(--border); background: var(--surface-2);
+      color: var(--text-muted); white-space: nowrap;
+    }
+    .pill.warn { background: var(--warn-bg); border-color: var(--warn-bd); color: var(--warn); }
+    .pill.pass { background: var(--pass-bg); border-color: var(--pass-bd); color: var(--pass); }
+    .pill.fail { background: var(--fail-bg); border-color: var(--fail-bd); color: var(--fail); }
+    .nav { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; flex-shrink: 0; }
+    .nav a, .btn {
+      text-decoration: none; color: var(--text-muted);
+      font-size: 12px; font-weight: 550; padding: 4px 9px; border-radius: 6px;
+      border: 1px solid var(--border); background: var(--surface);
+      cursor: pointer; white-space: nowrap;
+    }
+    .nav a { border-color: transparent; background: transparent; }
+    .nav a:hover, .btn:hover { background: var(--surface-2); color: var(--text); }
+    .btn.active {
+      background: var(--accent-soft); color: var(--accent); border-color: var(--accent);
+    }
+    .wrap { max-width: 1260px; margin: 0 auto; padding: 18px 22px 56px; }
+    .warn-banner {
+      background: var(--warn-bg); border: 1px solid var(--warn-bd);
+      border-left: 3px solid var(--warn); border-radius: 8px;
+      padding: 10px 14px; margin-bottom: 14px; font-size: 12.5px;
+    }
+    .warn-banner ul { margin: 4px 0 0 18px; padding: 0; }
     .kpis {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-      gap: 0.9rem; margin-bottom: 1.5rem;
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px; margin-bottom: 18px;
     }
     .kpi {
-      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
-      padding: 0.95rem 1.05rem; box-shadow: var(--shadow);
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+      padding: 13px 15px; box-shadow: var(--shadow);
     }
     .kpi-label {
-      font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.04em;
-      color: var(--muted); font-weight: 700;
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+      color: var(--muted); font-weight: 650;
     }
-    .kpi-val { font-size: 1.45rem; font-weight: 800; margin-top: 0.2rem; }
-    .kpi-sub { font-size: 0.8rem; color: var(--muted); margin-top: 0.15rem; }
+    .kpi-val { font-size: 22px; font-weight: 700; margin-top: 4px; letter-spacing: -0.02em; }
+    .kpi-sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
     .charts {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
-      gap: 1rem; margin-bottom: 1.5rem;
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+      gap: 14px; margin-bottom: 18px;
     }
+    @media (max-width: 640px) { .charts { grid-template-columns: 1fr; } }
     .card {
-      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
-      padding: 1.1rem 1.2rem; box-shadow: var(--shadow); margin-bottom: 1.5rem;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px 16px; box-shadow: var(--shadow); margin-bottom: 18px;
     }
     .charts .card { margin-bottom: 0; }
-    .card h2 { margin: 0 0 0.75rem; font-size: 1.05rem; font-weight: 700; }
+    .card-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; flex-wrap: wrap; margin-bottom: 8px;
+    }
+    .card h2 { margin: 0; font-size: 14.5px; font-weight: 650; }
     .svg-box { width: 100%; overflow-x: auto; }
     .svg-box svg { display: block; width: 100%; height: auto; }
-    table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th, td {
-      padding: 0.55rem 0.65rem; border-bottom: 1px solid var(--border);
+      padding: 7px 9px; border-bottom: 1px solid var(--border);
       text-align: left; vertical-align: middle;
     }
     th {
-      font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.03em;
-      color: var(--muted); font-weight: 700; background: var(--surface-2);
+      font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.03em;
+      color: var(--muted); font-weight: 600; background: var(--surface-2);
     }
-    td.num, th.num {
-      text-align: right;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    }
+    td.num, th.num { text-align: right; font-family: var(--mono); font-size: 12.5px; }
     .badge {
-      display: inline-block; padding: 0.12rem 0.45rem; border-radius: 999px;
-      font-weight: 700; font-size: 0.78rem;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      display: inline-block; padding: 2px 7px; border-radius: 999px;
+      font-weight: 650; font-size: 11.5px; font-family: var(--mono);
     }
     .badge.pos { background: var(--pass-bg); color: var(--pass); }
     .badge.neg { background: var(--fail-bg); color: var(--fail); }
     .badge.neu { background: var(--surface-2); color: var(--muted); }
     .controls {
-      display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 0.85rem;
+      display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px;
     }
     .search {
-      flex: 1 1 220px; padding: 0.45rem 0.7rem; border-radius: 8px;
-      border: 1px solid var(--border); background: var(--bg);
-      color: var(--text); font-size: 0.86rem;
+      flex: 1 1 220px; padding: 5px 9px; border-radius: 6px;
+      border: 1px solid var(--border-strong); background: var(--surface);
+      color: var(--text); font-size: 12.5px;
     }
     .cell {
-      display: inline-block; min-width: 44px; text-align: center; padding: 0.16rem 0.35rem;
-      border-radius: 6px; font-weight: 700; font-size: 0.78rem;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      display: inline-block; min-width: 44px; text-align: center; padding: 2px 5px;
+      border-radius: 5px; font-weight: 650; font-size: 12px; font-family: var(--mono);
     }
     .task-row { cursor: pointer; }
-    .task-row:hover { background: var(--surface-2); }
+    .task-row:hover td { background: var(--surface-2); }
     .prompt-preview {
       max-width: 420px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-      color: var(--muted); font-size: 0.84rem;
+      color: var(--text-muted); font-size: 12.5px;
     }
-    .prompt-expand {
-      background: var(--surface-2); padding: 0.75rem 0.9rem; border-radius: 8px;
-      white-space: pre-wrap; font-size: 0.84rem; margin: 0.25rem 0;
+    .expand-box {
+      background: var(--surface-2); padding: 10px 12px; border-radius: 8px;
+      font-size: 12.5px; margin: 2px 0;
     }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .arm-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 8px; margin-top: 8px;
+    }
+    .arm-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 7px; padding: 8px 10px;
+    }
+    .arm-excerpt {
+      margin-top: 5px; white-space: pre-wrap; word-break: break-word;
+      font-size: 11.5px; color: var(--text-muted); max-height: 160px; overflow-y: auto;
+      font-family: var(--mono);
+    }
+    .mono { font-family: var(--mono); font-size: 12px; }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <header>
-      <div>
-        <h1 id="page-title">Eval Series</h1>
-        <p class="sub" id="page-sub"></p>
-      </div>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <span class="brand-title" id="page-title">Eval Series</span>
+      <span class="pill" id="pill-tasks"></span>
+      <span class="pill" id="pill-metric"></span>
+    </div>
+    <nav class="nav">
+      <a href="#charts">Charts</a>
+      <a href="#table">Metrics</a>
+      <a href="#heatmap">Task Heatmap</a>
       <button class="btn" id="theme-toggle" type="button">Theme</button>
-    </header>
+    </nav>
+  </header>
 
+  <div class="wrap">
+    <div id="warn-wrap"></div>
     <div class="kpis" id="kpi-strip"></div>
 
-    <div class="charts">
+    <div class="charts" id="charts">
       <div class="card">
-        <h2>Progression Across Checkpoints (95% Bootstrap CI)</h2>
+        <div class="card-head">
+          <h2>Progression Across Arms</h2>
+          <div style="display:flex;gap:4px">
+            <button class="btn active" id="mode-bars" type="button">Grouped Bars / Dots</button>
+            <button class="btn" id="mode-line" type="button">Connected Curve</button>
+          </div>
+        </div>
         <div class="svg-box" id="chart-progress"></div>
       </div>
       <div class="card">
-        <h2 id="pareto-title">Accuracy vs Efficiency Pareto</h2>
+        <div class="card-head">
+          <h2 id="pareto-title">Accuracy vs Efficiency Pareto</h2>
+        </div>
         <div class="svg-box" id="chart-pareto"></div>
       </div>
     </div>
 
-    <div class="card">
-      <h2>Progression Metrics Table</h2>
+    <div class="card" id="table">
+      <div class="card-head">
+        <h2>Progression Metrics Table</h2>
+        <span class="muted" id="boot-note" style="font-size:12px"></span>
+      </div>
       <div style="overflow-x:auto">
         <table id="metrics-table"></table>
       </div>
     </div>
 
-    <div class="card">
-      <h2>Per-Task Trajectory Heatmap</h2>
+    <div class="card" id="heatmap">
+      <div class="card-head">
+        <h2>Per-Task Trajectory Heatmap</h2>
+        <span class="muted" style="font-size:12px">Sorted by flip pattern · click row to view</span>
+      </div>
       <div class="controls">
         <input
           class="search"
@@ -618,8 +771,9 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
         <button class="btn active" data-filter="all" type="button">All</button>
         <button class="btn" data-filter="solved" type="button">Flipped Solved</button>
         <button class="btn" data-filter="regressed" type="button">Regressed</button>
-        <button class="btn" data-filter="hard" type="button">Always Hard</button>
+        <button class="btn" data-filter="mixed" type="button">Partial / Mixed</button>
         <button class="btn" data-filter="always_solved" type="button">Always Solved</button>
+        <button class="btn" data-filter="hard" type="button">Always Hard</button>
       </div>
       <div style="overflow-x:auto">
         <table id="heatmap-table"></table>
@@ -634,29 +788,22 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
       var S = JSON.parse(dataEl.textContent || "{}");
       var pts = S.points || [];
       var tasks = S.tasks || [];
+      var chartMode = "bars";
 
       var root = document.documentElement;
-      var themeBtn = document.getElementById("theme-toggle");
+      var prefersDark = window.matchMedia &&
+        window.matchMedia("(prefers-color-scheme: dark)").matches;
+      root.setAttribute("data-theme", prefersDark ? "dark" : "light");
       try {
         var saved = localStorage.getItem("tinker-inspect-theme");
         if (saved === "dark" || saved === "light") root.setAttribute("data-theme", saved);
       } catch (e) {}
-      function isDark() {
-        var attr = root.getAttribute("data-theme");
-        if (attr === "dark") return true;
-        if (attr === "light") return false;
-        var mq = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)");
-        return !!(mq && mq.matches);
-      }
-      function syncThemeBtn() {
-        themeBtn.textContent = isDark() ? "Light mode" : "Dark mode";
-      }
-      syncThemeBtn();
+      function isDark() { return root.getAttribute("data-theme") === "dark"; }
+      var themeBtn = document.getElementById("theme-toggle");
       themeBtn.addEventListener("click", function () {
         var next = isDark() ? "light" : "dark";
         root.setAttribute("data-theme", next);
         try { localStorage.setItem("tinker-inspect-theme", next); } catch (e) {}
-        syncThemeBtn();
         renderCharts();
       });
 
@@ -671,82 +818,112 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
       function fmtDelta(v) { return (v >= 0 ? "+" : "") + (v * 100).toFixed(1) + " pp"; }
 
       document.getElementById("page-title").textContent = S.title || "Eval Series";
-      document.getElementById("page-sub").textContent =
-        S.num_tasks + " paired tasks across " + pts.length +
-        " checkpoints · primary metric: " + S.primary_metric;
+      document.getElementById("pill-tasks").textContent =
+        S.num_tasks + " paired tasks · " + pts.length + " arms";
+      document.getElementById("pill-metric").textContent = "metric: " + S.primary_metric;
+      var clNote = S.cluster_by
+        ? ", cluster_by=" + S.cluster_by +
+          (S.num_clusters ? " (" + S.num_clusters + " clusters)" : "")
+        : "";
+      document.getElementById("boot-note").textContent =
+        "Bootstrap n=" + (S.n_boot || 10000) + ", seed=" + (S.seed != null ? S.seed : 42) + clNote;
+
+      if (S.warnings && S.warnings.length) {
+        document.getElementById("warn-wrap").innerHTML =
+          '<div class="warn-banner"><strong>Comparison Warnings</strong><ul>' +
+          S.warnings.map(function (w) { return "<li>" + esc(w) + "</li>"; }).join("") +
+          "</ul></div>";
+      }
 
       var basePt = pts[0];
+      var lastPt = pts[pts.length - 1];
       var bestPt = pts.reduce(function (a, b) {
         return b.primary_mean > a.primary_mean ? b : a;
       }, basePt);
-      var lastPt = pts[pts.length - 1];
       var flippedUp = tasks.filter(function (t) { return t.flipped_solved; }).length;
       var flippedDn = tasks.filter(function (t) { return t.flipped_regressed; }).length;
 
-      var turnDelta = (bestPt.mean_turns - basePt.mean_turns) / Math.max(basePt.mean_turns, 1e-6);
-      var tokSub = "turns: " + basePt.mean_turns.toFixed(2) + " -> " + bestPt.mean_turns.toFixed(2);
-      var tokVal = (turnDelta * 100).toFixed(1) + "% turns";
-      if (basePt.mean_output_tokens != null && bestPt.mean_output_tokens != null) {
-        var denomT = Math.max(basePt.mean_output_tokens, 1e-6);
-        var pctT = ((bestPt.mean_output_tokens - basePt.mean_output_tokens) / denomT) * 100;
-        tokVal = (pctT >= 0 ? "+" : "") + pctT.toFixed(1) + "%";
-        tokSub =
-          basePt.mean_output_tokens.toFixed(0) + " -> " +
-          bestPt.mean_output_tokens.toFixed(0) + " out tokens";
-      }
-
       var kpiItems = [
         {
-          label: "Paired Tasks",
-          val: String(S.num_tasks),
-          sub: pts.length + " checkpoints · metric: " + S.primary_metric
-        },
-        {
-          label: "Baseline -> Best (" + bestPt.label + ")",
-          val: fmtPct(basePt.primary_mean) + " -> " + fmtPct(bestPt.primary_mean),
-          sub: fmtDelta(bestPt.delta_vs_base) +
-            " [" + fmtDelta(bestPt.ci_low) + ", " + fmtDelta(bestPt.ci_high) + "]"
-        },
-        {
-          label: "Output Efficiency (Base -> Best)",
-          val: tokVal,
-          sub: tokSub
-        },
-        {
-          label: "Task Flips (First -> Last)",
-          val: "+" + flippedUp + " / -" + flippedDn,
-          sub: lastPt.label + " vs " + basePt.label
+          label: "First \u2192 Last (" + basePt.label + " \u2192 " + lastPt.label + ")",
+          val: fmtPct(basePt.primary_mean) + " \u2192 " + fmtPct(lastPt.primary_mean),
+          sub: fmtDelta(lastPt.delta_vs_base) +
+            " [" + fmtDelta(lastPt.ci_low) + ", " + fmtDelta(lastPt.ci_high) + "]"
         }
       ];
+      if (bestPt !== lastPt) {
+        kpiItems.push({
+          label: "Best (uncorrected for multiple comparisons): " + bestPt.label,
+          val: fmtPct(bestPt.primary_mean),
+          sub: fmtDelta(bestPt.delta_vs_base) +
+            " [" + fmtDelta(bestPt.ci_low) + ", " + fmtDelta(bestPt.ci_high) + "]"
+        });
+      }
+      var effVal = (
+        ((lastPt.mean_turns - basePt.mean_turns) / Math.max(basePt.mean_turns, 1e-6)) * 100
+      ).toFixed(1) + "% turns";
+      var effSub =
+        "turns: " + basePt.mean_turns.toFixed(2) + " \u2192 " + lastPt.mean_turns.toFixed(2);
+      if (basePt.mean_output_tokens != null && lastPt.mean_output_tokens != null) {
+        var denomT = Math.max(basePt.mean_output_tokens, 1e-6);
+        var pctT = ((lastPt.mean_output_tokens - basePt.mean_output_tokens) / denomT) * 100;
+        effVal = (pctT >= 0 ? "+" : "") + pctT.toFixed(1) + "%";
+        effSub =
+          basePt.mean_output_tokens.toFixed(0) + " \u2192 " +
+          lastPt.mean_output_tokens.toFixed(0) + " out tokens";
+      }
+      kpiItems.push({
+        label: "Output Efficiency (First \u2192 Last)",
+        val: effVal,
+        sub: effSub
+      });
+      kpiItems.push({
+        label: "Task Flips (First \u2192 Last)",
+        val: "+" + flippedUp + " / -" + flippedDn,
+        sub: lastPt.label + " vs " + basePt.label + " (" + S.num_tasks + " tasks)"
+      });
+
       document.getElementById("kpi-strip").innerHTML = kpiItems.map(function (k) {
         return '<div class="kpi"><div class="kpi-label">' + esc(k.label) +
           '</div><div class="kpi-val">' + esc(k.val) +
           '</div><div class="kpi-sub">' + esc(k.sub) + '</div></div>';
       }).join("");
 
+      function niceStep(span, count) {
+        var raw = Math.max(span, 1e-9) / Math.max(count, 1);
+        var mag = Math.pow(10, Math.floor(Math.log10(raw)));
+        var norm = raw / mag;
+        var s = norm <= 1 ? 1 : (norm <= 2 ? 2 : (norm <= 2.5 ? 2.5 : (norm <= 5 ? 5 : 10)));
+        return s * mag;
+      }
+
       function renderCharts() {
         var fg = isDark() ? "#cbd5e1" : "#334155";
         var grid = isDark() ? "#1f2937" : "#e2e8f0";
         var bg = isDark() ? "#0f172a" : "#f8fafc";
-        var accent = isDark() ? "#60a5fa" : "#2563eb";
+        var accent = isDark() ? "#818cf8" : "#4f46e5";
         var good = isDark() ? "#34d399" : "#059669";
 
-        var W = 540, H = 280, pL = 52, pR = 32, pT = 28, pB = 54;
+        var W = 560, H = 285, pL = 52, pR = 26, pT = 32, pB = 54;
         var ys = [];
         pts.forEach(function (p, i) {
           ys.push(p.primary_mean);
           if (i > 0) {
-            ys.push(basePt.primary_mean + p.ci_low);
-            ys.push(basePt.primary_mean + p.ci_high);
+            ys.push(p.primary_mean + (p.ci_low - p.delta_vs_base));
+            ys.push(p.primary_mean + (p.ci_high - p.delta_vs_base));
           }
         });
-        var yMin = Math.max(0, Math.floor((Math.min.apply(null, ys) - 0.05) * 10) / 10);
-        var yMax = Math.min(1.0, Math.ceil((Math.max.apply(null, ys) + 0.06) * 10) / 10);
-        if (yMax - yMin < 0.25) {
-          yMin = Math.max(0, yMin - 0.1);
-          yMax = Math.min(1.0, yMax + 0.1);
+        var yStep = 0.2;
+        var yMin = chartMode === "bars"
+          ? 0
+          : Math.max(0, Math.floor(Math.min.apply(null, ys) / yStep) * yStep);
+        var yMax = Math.min(1.0, Math.ceil((Math.max.apply(null, ys) + 0.04) / yStep) * yStep);
+        if (chartMode !== "bars" && yMax - yMin < 0.4) {
+          yMin = Math.max(0, yMin - 0.2);
+          yMax = Math.min(1.0, yMax + 0.2);
         }
-        var xPad = 34;
+        if (chartMode === "bars" && yMax < 0.4) yMax = 0.4;
+        var xPad = 38;
         function xp(i) {
           if (pts.length <= 1) return (pL + W - pR) / 2;
           return (pL + xPad) + (W - pL - pR - 2 * xPad) * (i / (pts.length - 1));
@@ -763,8 +940,9 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
           '<rect x="' + pL + '" y="' + pT + '" width="' + (W - pL - pR) +
           '" height="' + (H - pT - pB) + '" rx="4" fill="' + bg + '" stroke="' + grid + '"/>'
         );
-        for (var g = 0; g <= 4; g++) {
-          var v = yMin + (yMax - yMin) * (g / 4);
+        var yTicks = [];
+        for (var tv = yMin; tv <= yMax + 1e-6; tv += yStep) yTicks.push(tv);
+        yTicks.forEach(function (v) {
           var yy = yp(v);
           svg1.push(
             '<line x1="' + pL + '" y1="' + yy.toFixed(1) + '" x2="' + (W - pR) +
@@ -775,32 +953,52 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
             '" text-anchor="end" font-size="10.5" fill="' + fg + '">' +
             (v * 100).toFixed(0) + '%</text>'
           );
-        }
+        });
         var by = yp(basePt.primary_mean);
         svg1.push(
           '<line x1="' + pL + '" y1="' + by.toFixed(1) + '" x2="' + (W - pR) +
           '" y2="' + by.toFixed(1) + '" stroke="#94a3b8" stroke-dasharray="5,4" opacity="0.7"/>'
         );
-        // Subtle translucent 95% CI range bands behind line & dots
+
+        var barW = Math.min(44, Math.max(18, (W - pL - pR) / Math.max(pts.length * 1.8, 1)));
+        if (chartMode === "bars") {
+          pts.forEach(function (p, i) {
+            var cx = xp(i), cy = yp(p.primary_mean);
+            var bh = Math.max(1, (H - pB) - cy);
+            var bCol = p === bestPt ? good : accent;
+            svg1.push(
+              '<rect x="' + (cx - barW / 2).toFixed(1) + '" y="' + cy.toFixed(1) +
+              '" width="' + barW.toFixed(1) + '" height="' + bh.toFixed(1) +
+              '" rx="3" fill="' + bCol + '" opacity="0.32"/>'
+            );
+          });
+        }
+
         pts.forEach(function (p, i) {
           if (i === 0) return;
           var cx = xp(i);
-          var lo = yp(Math.max(yMin, basePt.primary_mean + p.ci_low));
-          var hi = yp(Math.min(yMax, basePt.primary_mean + p.ci_high));
+          var loV = p.primary_mean + (p.ci_low - p.delta_vs_base);
+          var hiV = p.primary_mean + (p.ci_high - p.delta_vs_base);
+          var lo = yp(Math.max(yMin, loV));
+          var hi = yp(Math.min(yMax, hiV));
           var bandCol = p === bestPt ? good : accent;
           svg1.push(
             '<line x1="' + cx.toFixed(1) + '" y1="' + lo.toFixed(1) +
             '" x2="' + cx.toFixed(1) + '" y2="' + hi.toFixed(1) +
-            '" stroke="' + bandCol + '" stroke-width="5" stroke-linecap="round" opacity="0.22"/>'
+            '" stroke="' + bandCol + '" stroke-width="5" stroke-linecap="round" opacity="0.28"/>'
           );
         });
-        var linePts = pts.map(function (p, i) {
-          return xp(i).toFixed(1) + "," + yp(p.primary_mean).toFixed(1);
-        }).join(" ");
-        svg1.push(
-          '<polyline points="' + linePts + '" fill="none" stroke="' + accent +
-          '" stroke-width="2.2" stroke-linejoin="round"/>'
-        );
+
+        if (chartMode === "line") {
+          var linePts = pts.map(function (p, i) {
+            return xp(i).toFixed(1) + "," + yp(p.primary_mean).toFixed(1);
+          }).join(" ");
+          svg1.push(
+            '<polyline points="' + linePts + '" fill="none" stroke="' + accent +
+            '" stroke-width="2.2" stroke-linejoin="round"/>'
+          );
+        }
+
         pts.forEach(function (p, i) {
           var cx = xp(i), cy = yp(p.primary_mean);
           var dotCol = p === bestPt ? good : accent;
@@ -808,15 +1006,15 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
             '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) +
             '" r="4.8" fill="' + dotCol + '" stroke="#ffffff" stroke-width="1.5"/>'
           );
-          var lblAnchor = i === pts.length - 1 ? "end" : "start";
-          var lblDx = i === pts.length - 1 ? -8 : 8;
-          var lblDy = cy < pT + 26 ? 15 : -8;
+          var lblAnchor = i === pts.length - 1 ? "end" : (i === 0 ? "start" : "middle");
+          var lblDx = i === pts.length - 1 ? -8 : (i === 0 ? 8 : 0);
+          var lblDy = cy < pT + 26 ? 16 : -9;
           svg1.push(
             '<text x="' + (cx + lblDx).toFixed(1) + '" y="' + (cy + lblDy).toFixed(1) +
             '" text-anchor="' + lblAnchor + '" font-size="10.5" font-weight="700" fill="' +
             fg + '" ' + halo + '>' + fmtPct(p.primary_mean) + '</text>'
           );
-          var shortLbl = p.label.length > 13 ? p.label.slice(0, 12) + "…" : p.label;
+          var shortLbl = p.label.length > 14 ? p.label.slice(0, 13) + "…" : p.label;
           var xLblY = pts.length >= 5 && i % 2 === 1 ? H - 10 : H - 24;
           svg1.push(
             '<text x="' + cx.toFixed(1) + '" y="' + xLblY +
@@ -825,13 +1023,14 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
           );
         });
         svg1.push(
-          '<text x="' + (W - pR - 4) + '" y="' + (pT + 13) +
-          '" text-anchor="end" font-size="9.5" fill="' + fg + '" opacity="0.7">' +
-          'Shaded bars: 95% paired CI vs base</text>'
+          '<text x="' + (W - pR - 2) + '" y="' + (pT - 10) +
+          '" text-anchor="end" font-size="9.5" fill="' + fg + '" opacity="0.8">' +
+          '95% CI of &Delta; vs baseline drawn around arm mean</text>'
         );
         svg1.push("</svg>");
         document.getElementById("chart-progress").innerHTML = svg1.join("");
 
+        // Pareto chart
         var tokPts = pts.filter(function (p) { return p.mean_output_tokens != null; });
         var useTok = tokPts.length >= 2;
         document.getElementById("pareto-title").textContent = useTok
@@ -841,10 +1040,12 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
         var xs = pPts.map(function (p) {
           return useTok ? p.mean_output_tokens : p.mean_turns;
         });
-        var xMin = Math.min.apply(null, xs), xMax = Math.max.apply(null, xs);
-        var xSpan = Math.max(xMax - xMin, 1);
-        xMin = Math.max(0, xMin - 0.16 * xSpan);
-        xMax = xMax + 0.16 * xSpan;
+        var rawXMin = Math.min.apply(null, xs), rawXMax = Math.max.apply(null, xs);
+        var xSpan = Math.max(rawXMax - rawXMin, 1);
+        var xStep = niceStep(xSpan * 1.25, 4);
+        var xMin = Math.max(0, Math.floor((rawXMin - 0.1 * xSpan) / xStep) * xStep);
+        var xMax = Math.ceil((rawXMax + 0.15 * xSpan) / xStep) * xStep;
+        if (xMax <= xMin) xMax = xMin + xStep;
         function xq(val) {
           return pL + (W - pL - pR) * ((val - xMin) / Math.max(xMax - xMin, 1e-6));
         }
@@ -854,8 +1055,7 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
           '<rect x="' + pL + '" y="' + pT + '" width="' + (W - pL - pR) +
           '" height="' + (H - pT - pB) + '" rx="4" fill="' + bg + '" stroke="' + grid + '"/>'
         );
-        for (var g2 = 0; g2 <= 4; g2++) {
-          var v2 = yMin + (yMax - yMin) * (g2 / 4);
+        yTicks.forEach(function (v2) {
           var yy2 = yp(v2);
           svg2.push(
             '<line x1="' + pL + '" y1="' + yy2.toFixed(1) + '" x2="' + (W - pR) +
@@ -866,7 +1066,8 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
             '" text-anchor="end" font-size="10.5" fill="' + fg + '">' +
             (v2 * 100).toFixed(0) + '%</text>'
           );
-          var xv = xMin + (xMax - xMin) * (g2 / 4);
+        });
+        for (var xv = xMin; xv <= xMax + 1e-6; xv += xStep) {
           var xx = xq(xv);
           svg2.push(
             '<line x1="' + xx.toFixed(1) + '" y1="' + pT + '" x2="' + xx.toFixed(1) +
@@ -875,7 +1076,7 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
           svg2.push(
             '<text x="' + xx.toFixed(1) + '" y="' + (H - pB + 16) +
             '" text-anchor="middle" font-size="10.5" fill="' + fg + '">' +
-            (useTok ? xv.toFixed(0) : xv.toFixed(1)) + '</text>'
+            (useTok ? Math.round(xv) : xv.toFixed(1)) + '</text>'
           );
         }
         var sortedP = pPts.slice().sort(function (a, b) {
@@ -897,7 +1098,7 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
             '" stroke-width="2" stroke-dasharray="5,3" opacity="0.8"/>'
           );
         }
-        var colors = ["#64748b", "#2563eb", "#7c3aed", "#059669", "#d97706", "#db2777"];
+        var colors = ["#64748b", "#4f46e5", "#7c3aed", "#059669", "#d97706", "#db2777"];
         var placedBoxes = [];
         function boxesOverlap(a, b) {
           return !(a.x2 < b.x1 || a.x1 > b.x2 || a.y2 < b.y1 || a.y1 > b.y2);
@@ -908,25 +1109,17 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
             box.y1 >= pT + 2 && box.y2 <= H - pB - 2
           );
         }
-        // Reserve small boxes around every dot so labels never cover dots
         pPts.forEach(function (p) {
           var xval = useTok ? p.mean_output_tokens : p.mean_turns;
           var dx0 = xq(xval), dy0 = yp(p.primary_mean);
           placedBoxes.push({ x1: dx0 - 7, y1: dy0 - 7, x2: dx0 + 7, y2: dy0 + 7 });
         });
         var candidateOffsets = [
-          [-10, -4, "end"],
-          [10, -4, "start"],
-          [-10, 14, "end"],
-          [10, 14, "start"],
-          [-10, -18, "end"],
-          [10, -18, "start"],
-          [-10, 26, "end"],
-          [10, 26, "start"],
-          [0, -14, "middle"],
-          [0, 20, "middle"],
-          [-14, -30, "end"],
-          [-14, 34, "end"],
+          [-10, -4, "end"], [10, -4, "start"],
+          [-10, 14, "end"], [10, 14, "start"],
+          [-10, -18, "end"], [10, -18, "start"],
+          [-10, 26, "end"], [10, 26, "start"],
+          [0, -14, "middle"], [0, 20, "middle"],
         ];
         pPts.forEach(function (p, i) {
           var xval = useTok ? p.mean_output_tokens : p.mean_turns;
@@ -954,23 +1147,15 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
           if (!chosen) {
             var fallAnc = cx > W - pR - 110 ? "end" : "start";
             var fallLx = cx + (fallAnc === "end" ? -10 : 10);
-            var fallLy = Math.max(pT + 14, Math.min(H - pB - 6, cy + (i % 2 === 0 ? -12 : 16)));
+            var fallLy = Math.max(
+              pT + 14, Math.min(H - pB - 6, cy + (i % 2 === 0 ? -12 : 16))
+            );
             chosen = {
-              lx: fallLx,
-              ly: fallLy,
-              anc: fallAnc,
+              lx: fallLx, ly: fallLy, anc: fallAnc,
               box: { x1: fallLx - tw, y1: fallLy - th, x2: fallLx + tw, y2: fallLy + 3 },
             };
           }
           placedBoxes.push(chosen.box);
-          var dist = Math.hypot(chosen.lx - cx, (chosen.ly - 4) - cy);
-          if (dist > 18) {
-            svg2.push(
-              '<line x1="' + cx.toFixed(1) + '" y1="' + cy.toFixed(1) +
-              '" x2="' + chosen.lx.toFixed(1) + '" y2="' + (chosen.ly - 3).toFixed(1) +
-              '" stroke="' + col + '" stroke-width="1" opacity="0.45"/>'
-            );
-          }
           svg2.push(
             '<text x="' + chosen.lx.toFixed(1) + '" y="' + chosen.ly.toFixed(1) +
             '" text-anchor="' + chosen.anc + '" font-size="10.2" font-weight="600" fill="' +
@@ -985,6 +1170,19 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
         svg2.push("</svg>");
         document.getElementById("chart-pareto").innerHTML = svg2.join("");
       }
+
+      document.getElementById("mode-line").addEventListener("click", function () {
+        chartMode = "line";
+        document.getElementById("mode-line").classList.add("active");
+        document.getElementById("mode-bars").classList.remove("active");
+        renderCharts();
+      });
+      document.getElementById("mode-bars").addEventListener("click", function () {
+        chartMode = "bars";
+        document.getElementById("mode-bars").classList.add("active");
+        document.getElementById("mode-line").classList.remove("active");
+        renderCharts();
+      });
       renderCharts();
 
       var hasFmt = pts.some(function (p) {
@@ -1044,22 +1242,41 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
         return "background:var(--warn-bg);color:var(--warn);";
       }
 
+      function patternRank(t) {
+        if (t.flipped_solved) return 0;
+        if (t.flipped_regressed) return 1;
+        var allPass = t.scores.every(function (s) { return s >= 0.5; });
+        var allFail = t.scores.every(function (s) { return s < 0.5; });
+        if (!allPass && !allFail) return 2;
+        if (allPass) return 3;
+        return 4;
+      }
+
+      function endBadgeCls(st) {
+        if (st === "completed") return "pass";
+        if (st === "token_limit" || st === "turn_limit") return "warn";
+        return "fail";
+      }
+
       function renderHeatmap() {
         var q = (searchInput.value || "").trim().toLowerCase();
         var filtered = tasks.filter(function (t) {
+          var allPass = t.scores.every(function (s) { return s >= 0.5; });
+          var allFail = t.scores.every(function (s) { return s < 0.5; });
           if (activeFilter === "solved" && !t.flipped_solved) return false;
           if (activeFilter === "regressed" && !t.flipped_regressed) return false;
-          if (activeFilter === "hard") {
-            if (!t.scores.every(function (s) { return s < 0.5; })) return false;
-          }
-          if (activeFilter === "always_solved") {
-            if (!t.scores.every(function (s) { return s >= 0.5; })) return false;
-          }
+          if (activeFilter === "mixed" && (allPass || allFail)) return false;
+          if (activeFilter === "hard" && !allFail) return false;
+          if (activeFilter === "always_solved" && !allPass) return false;
           if (q) {
             var hay = (String(t.task_id || t.task_key) + " " + (t.prompt || "")).toLowerCase();
             if (hay.indexOf(q) === -1) return false;
           }
           return true;
+        }).slice().sort(function (a, b) {
+          var ra = patternRank(a), rb = patternRank(b);
+          if (ra !== rb) return ra - rb;
+          return Math.abs(b.final_delta) - Math.abs(a.final_delta);
         });
 
         var hHead = "<thead><tr><th>Task</th><th>Prompt</th>" +
@@ -1081,8 +1298,26 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
             scoreCells +
             "<td class='num'><span class='badge " + dCls + "'>" + dTxt + "</span></td></tr>";
           if (!expanded[key]) return mainRow;
-          return mainRow + "<tr><td colspan='" + colSpan + "'><div class='prompt-expand'>" +
-            esc(t.prompt) + "</div></td></tr>";
+          var arms = (t.arm_summaries || []).map(function (a) {
+            var est = a.end_state || "completed";
+            return "<div class='arm-card'>" +
+              "<div style='display:flex;justify-content:space-between;gap:6px;flex-wrap:wrap'>" +
+              "<strong>" + esc(a.label) + "</strong>" +
+              "<span class='pill " + endBadgeCls(est) + "'>" + esc(est) + "</span></div>" +
+              "<div class='mono' style='color:var(--muted);margin-top:2px'>score=" +
+              Number(a.score).toFixed(2) + " · turns=" + a.turns +
+              (a.out_tokens != null ? " · tok=" + a.out_tokens : "") + "</div>" +
+              "<div class='arm-excerpt'>" + esc(a.excerpt || "(no transcript excerpt)") +
+              "</div></div>";
+          }).join("");
+          var gold = t.gold_answer
+            ? "<div style='margin-top:6px'><strong>Gold:</strong> <span class='mono'>" +
+              esc(t.gold_answer) + "</span></div>"
+            : "";
+          return mainRow + "<tr><td colspan='" + colSpan + "'><div class='expand-box'>" +
+            "<div><strong>Prompt:</strong> " + esc(t.prompt) + "</div>" + gold +
+            (arms ? "<div class='arm-grid'>" + arms + "</div>" : "") +
+            "</div></td></tr>";
         }).join("");
 
         var emptyRow = "<tr><td colspan='" + colSpan +
@@ -1121,7 +1356,7 @@ def build_series_html(summary: EvalSeriesSummary, *, sanitize_paths: bool = Fals
     """Build a self-contained, zero-CDN HTML report for an evaluation progression series."""
     payload = asdict(summary)
     if sanitize_paths:
-        payload = _sanitize_value(payload)
+        payload = sanitize_value(payload)
     safe_title = (
         str(payload.get("title", "Eval Series"))
         .replace("&", "&amp;")

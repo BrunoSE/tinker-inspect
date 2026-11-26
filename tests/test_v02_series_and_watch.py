@@ -1,4 +1,4 @@
-"""Tests for tinker-inspect v0.2 series progression analyzer and live run watcher."""
+"""Tests for tinker-inspect v0.2/v0.3 series progression analyzer and live run watcher."""
 
 from __future__ import annotations
 
@@ -37,12 +37,21 @@ def _mk_ep(
     used_python: float | None = None,
     tool_errors: float | None = None,
     with_tool_call: bool = False,
+    ok: bool = True,
+    omit_success: bool = False,
+    reward_override: float | None = None,
+    episode_type: str | None = None,
+    max_tokens: int | None = None,
+    effort: float | None = None,
+    stop_reason: str | None = None,
+    gold_answer: str | None = None,
 ) -> EvalEpisode:
     metrics: dict[str, float] = {
-        "success": score,
         "outcome": score,
         "format_ok": format_ok,
     }
+    if not omit_success:
+        metrics["success"] = score
     if used_python is not None:
         metrics["used_python"] = used_python
     if tool_errors is not None:
@@ -63,15 +72,35 @@ def _mk_ep(
         task_id=task_id,
         prompt=prompt,
         split="test",
-        ok=True,
-        reward=score,
+        ok=ok,
+        reward=reward_override if reward_override is not None else score,
         metrics=metrics,
         num_turns=num_turns,
         input_tokens=200,
         output_tokens=output_tokens,
         final_answer_chars=len("\\boxed{1}"),
         messages=msgs,
+        stop_reason=stop_reason,
+        gold_answer=gold_answer,
+        episode_type=episode_type,
+        effort=effort,
+        max_tokens=max_tokens,
     )
+
+
+def _assert_inline_js_valid(html: str) -> None:
+    if not shutil.which("node"):
+        return
+    scripts = re.findall(r'<script(?![^>]*type="application/json")[^>]*>(.*?)</script>', html, re.S)
+    assert scripts
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as tf:
+        tf.write("\n;\n".join(scripts))
+        js_path = Path(tf.name)
+    try:
+        proc = subprocess.run(["node", "--check", str(js_path)], capture_output=True, text=True)
+        assert proc.returncode == 0, f"node --check failed: {proc.stderr}"
+    finally:
+        js_path.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -125,9 +154,10 @@ def test_analyze_eval_series_three_runs_and_ci_consistency():
     assert p2.used_tool_rate == pytest.approx(0.5)
     assert p2.mean_tool_errors == pytest.approx(0.125)
     assert p2.mean_output_tokens == pytest.approx(700.0)
+    assert p2.end_states.get("completed") == 4
 
-    # Cross-check exact paired CI against diagnostics.diff_evals(seed=42, n_boot=2000)
-    direct_diff = diff_evals(r0, r2, n_boot=2000, seed=42)
+    # Cross-check exact paired CI against diagnostics.diff_evals using shared stats default
+    direct_diff = diff_evals(r0, r2)
     direct_succ = next(m for m in direct_diff.metric_deltas if m.metric == "success")
     assert p2.delta_vs_base == pytest.approx(direct_succ.delta)
     assert p2.ci_low == pytest.approx(direct_succ.ci_low)
@@ -135,6 +165,67 @@ def test_analyze_eval_series_three_runs_and_ci_consistency():
 
     assert sum(1 for t in summary.tasks if t.flipped_solved) == 2
     assert sum(1 for t in summary.tasks if t.flipped_regressed) == 1
+    assert len(summary.tasks[0].arm_summaries) == 3
+
+
+def test_series_no_reward_fallback_warnings_and_clustering():
+    # Arm 0 has an unmatched extra task and max_tokens=4096 across 5 distinct families.
+    # Arm 1 has max_tokens=3072, an episode missing "success" with shaped reward=0.75
+    # (must NOT fall back to 0.75 — must score 0.0 for "success"!), and 2 attempts on task 0.
+    r0 = [
+        _mk_ep(0, "P0", 0.0, episode_type="famA", max_tokens=4096, gold_answer="42"),
+        _mk_ep(1, "P1", 1.0, episode_type="famB", max_tokens=4096),
+        _mk_ep(2, "P2", 0.0, episode_type="famC", max_tokens=4096),
+        _mk_ep(3, "P3", 1.0, episode_type="famD", max_tokens=4096),
+        _mk_ep(4, "P4", 0.0, episode_type="famE", max_tokens=4096),
+        _mk_ep(99, "Extra base only", 1.0, episode_type="famE", max_tokens=4096),
+    ]
+    r1 = [
+        _mk_ep(
+            0,
+            "P0",
+            0.0,
+            omit_success=True,
+            reward_override=0.75,
+            ok=False,
+            episode_type="famA",
+            max_tokens=3072,
+            stop_reason="length",
+        ),
+        _mk_ep(0, "P0", 1.0, episode_type="famA", max_tokens=3072),
+        _mk_ep(1, "P1", 1.0, episode_type="famB", max_tokens=3072),
+        _mk_ep(2, "P2", 1.0, episode_type="famC", max_tokens=3072),
+        _mk_ep(3, "P3", 1.0, episode_type="famD", max_tokens=3072),
+        _mk_ep(4, "P4", 1.0, episode_type="famE", max_tokens=3072),
+    ]
+    summary = analyze_eval_series(
+        [("CoT 4096", r0), ("TIR 3072", r1)],
+        primary_metric="success",
+        cluster_by="episode_type",
+        n_boot=500,
+        seed=42,
+    )
+    assert summary.num_tasks == 5
+    assert summary.num_clusters == 5
+    assert summary.unmatched_counts == [1, 0]
+    assert summary.cluster_by == "episode_type"
+    # Task 0 in arm 1 has two attempts: (0.0 + 1.0) / 2 = 0.5 (NOT (0.75 + 1.0) / 2 = 0.875!)
+    t0 = next(t for t in summary.tasks if t.task_id == 0)
+    assert t0.scores[1] == pytest.approx(0.5)
+    assert t0.gold_answer == "42"
+    assert any("Unmatched tasks" in w for w in summary.warnings)
+    assert any("Attempt counts differ" in w for w in summary.warnings)
+    assert any("Config mismatch" in w and "max_tokens" in w for w in summary.warnings)
+
+    # Unknown or single-valued cluster field must raise (never silently produce 0-width CI)
+    with pytest.raises(ValueError, match="missing"):
+        analyze_eval_series([("A", r0), ("B", r1)], cluster_by="no_such_field")
+    with pytest.raises(ValueError, match="minimum 5"):
+        analyze_eval_series([("A", r0), ("B", r1)], cluster_by="split")
+
+    html = build_series_html(summary)
+    assert "Comparison Warnings" in html or "warn-wrap" in html
+    _assert_inline_js_valid(html)
 
 
 def test_analyze_eval_series_prompt_fallback_and_errors():
@@ -183,6 +274,9 @@ def test_series_terminal_json_and_html_report():
     assert "/Users/alice" not in html
     assert "~/secret/file.py" in html
     assert "</script><" not in html
+    assert "Connected Curve" in html
+    assert "Grouped Bars / Dots" in html
+    assert "95% CI of &Delta; vs baseline drawn around arm mean" in html
 
     # Embedded JSON payload must parse cleanly
     m = re.search(
@@ -192,21 +286,7 @@ def test_series_terminal_json_and_html_report():
     payload = json.loads(m.group(1))
     assert payload["num_tasks"] == 2
     assert "/Users/" not in json.dumps(payload)
-
-    # Validate inline JS syntax via node --check if node is installed
-    if shutil.which("node"):
-        scripts = re.findall(
-            r'<script(?![^>]*type="application/json")[^>]*>(.*?)</script>', html, re.S
-        )
-        assert scripts
-        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as tf:
-            tf.write("\n;\n".join(scripts))
-            js_path = Path(tf.name)
-        try:
-            proc = subprocess.run(["node", "--check", str(js_path)], capture_output=True, text=True)
-            assert proc.returncode == 0, f"node --check failed: {proc.stderr}"
-        finally:
-            js_path.unlink(missing_ok=True)
+    _assert_inline_js_valid(html)
 
 
 def test_series_on_real_ood_polaris18_evals():
@@ -298,6 +378,32 @@ def test_watch_run_waits_streams_steps_dedups_warnings_and_exits_on_summary(
     assert "Run complete ::" in output
     # Step 0 warning should only appear once despite the idle poll (deduplicated by headline)
     assert output.count("1/4 kept") == 1
+
+
+def test_watch_finished_run_no_double_findings_and_per_step_status(tmp_path: Path):
+    # Finished run (checkpoint name='final') with clean step 0 (kl=0) and bad step 1 (kl=0.05)
+    run_dir = make_synthetic_run(
+        tmp_path / "finished_run",
+        num_steps=2,
+        remove_constant=False,
+        kl_v1_by_step=[0.0, 0.05],
+    )
+    (run_dir / "checkpoints.jsonl").write_text(
+        json.dumps({"name": "final", "batch": 1, "sampler_path": "tinker://final"}) + "\n",
+        encoding="utf-8",
+    )
+    buf = io.StringIO()
+    rc = watch_run(run_dir, interval_s=0.0, color=False, max_polls=3, stream=buf)
+    out = buf.getvalue()
+    assert rc == 0
+    # Step 0 has clean per-step status [PASS], while step 1 has [FAIL]
+    step0_line = next(ln for ln in out.splitlines() if ln.startswith("step=0 |"))
+    step1_line = next(ln for ln in out.splitlines() if ln.startswith("step=1 |"))
+    assert "status=[PASS]" in step0_line
+    assert "status=[FAIL]" in step1_line
+    # Findings must NOT be printed twice on a finished run!
+    assert out.count("KL0 broken") == 1
+    assert "Run complete ::" in out and "status=[FAIL]" in out
 
 
 def test_watch_run_fail_fast_exits_2_on_kl_drift(tmp_path: Path):

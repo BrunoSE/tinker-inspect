@@ -16,7 +16,7 @@ from tinker_inspect.html_report import (
     build_run_report_html,
     write_html,
 )
-from tinker_inspect.loader import load_eval_jsonl, load_run
+from tinker_inspect.loader import load_eval_jsonl_with_warnings, load_run
 from tinker_inspect.pricing import fetch_tinker_pricing, parse_rates_spec
 from tinker_inspect.schema import TokenCostRates
 from tinker_inspect.series import (
@@ -25,14 +25,52 @@ from tinker_inspect.series import (
     render_series_terminal,
     series_to_json,
 )
+from tinker_inspect.stats import DEFAULT_N_BOOT, DEFAULT_SEED
 from tinker_inspect.terminal import (
+    compare_to_json,
     diagnostics_to_json,
+    eval_diff_to_json,
     has_failures,
     render_compare_terminal,
     render_eval_diff_terminal,
     render_run_terminal,
 )
 from tinker_inspect.watch import watch_run
+
+_SANITIZE_PATHS_HELP = (
+    "Redact local home directory paths (/Users/..., /home/...) in HTML; "
+    "does not strip tinker:// URIs or W&B names."
+)
+
+_KNOWN_SUBCOMMANDS = frozenset({"inspect", "diff", "compare", "series", "watch"})
+_INSPECT_VALUE_FLAGS = frozenset(
+    {"--out", "--eval-before", "--eval-after", "--base-label", "--final-label", "--rates"}
+)
+
+
+def _rewrite_shorthand_argv(raw_argv: list[str]) -> list[str]:
+    """Rewrite ``tinker-inspect [flags] <log_dir>`` shorthand to ``inspect``."""
+    if not raw_argv or raw_argv[0] in ("-h", "--help", "--version"):
+        return raw_argv
+    idx = 0
+    first_pos: str | None = None
+    while idx < len(raw_argv):
+        tok = raw_argv[idx]
+        if tok == "--":
+            if idx + 1 < len(raw_argv):
+                first_pos = raw_argv[idx + 1]
+            break
+        if tok in _INSPECT_VALUE_FLAGS:
+            idx += 2
+            continue
+        if tok.startswith("-"):
+            idx += 1
+            continue
+        first_pos = tok
+        break
+    if first_pos is not None and first_pos not in _KNOWN_SUBCOMMANDS:
+        return ["inspect", *raw_argv]
+    return raw_argv
 
 
 def _resolve_rates(
@@ -59,13 +97,14 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
 
     eval_diff = None
     if args.eval_before and args.eval_after:
-        base_eps = load_eval_jsonl(args.eval_before)
-        final_eps = load_eval_jsonl(args.eval_after)
+        base_eps, base_warns = load_eval_jsonl_with_warnings(args.eval_before)
+        final_eps, final_warns = load_eval_jsonl_with_warnings(args.eval_after)
         eval_diff = diff_evals(
             base_eps,
             final_eps,
             base_label=args.base_label or Path(args.eval_before).stem,
             final_label=args.final_label or Path(args.eval_after).stem,
+            loader_warnings=base_warns + final_warns,
         )
     elif args.eval_before or args.eval_after:
         raise SystemExit("error: --eval-before and --eval-after must be provided together.")
@@ -96,32 +135,21 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
 
 
 def _cmd_diff(args: argparse.Namespace) -> int:
-    base_eps = load_eval_jsonl(args.base_jsonl)
-    final_eps = load_eval_jsonl(args.final_jsonl)
+    base_eps, base_warns = load_eval_jsonl_with_warnings(args.base_jsonl)
+    final_eps, final_warns = load_eval_jsonl_with_warnings(args.final_jsonl)
     diff = diff_evals(
         base_eps,
         final_eps,
         base_label=args.base_label or Path(args.base_jsonl).stem,
         final_label=args.final_label or Path(args.final_jsonl).stem,
+        primary_metric=args.metric,
+        cluster_by=args.cluster_by,
+        n_boot=args.n_boot,
+        seed=args.seed,
+        loader_warnings=base_warns + final_warns,
     )
     if args.json:
-        import json
-        from dataclasses import asdict
-
-        print(
-            json.dumps(
-                {
-                    "base_label": diff.base_label,
-                    "final_label": diff.final_label,
-                    "num_tasks": diff.num_tasks,
-                    "primary_metric": diff.primary_metric,
-                    "answer_chars_change_pct": diff.answer_chars_change_pct,
-                    "turns_change_pct": diff.turns_change_pct,
-                    "metric_deltas": [asdict(m) for m in diff.metric_deltas],
-                },
-                indent=2,
-            )
-        )
+        print(eval_diff_to_json(diff))
     else:
         use_color = sys.stdout.isatty() and not args.no_color
         print(render_eval_diff_terminal(diff, color=use_color))
@@ -136,6 +164,16 @@ def _cmd_diff(args: argparse.Namespace) -> int:
             print(f"\nHTML diff report: {written}")
         if args.open:
             webbrowser.open(written.as_uri())
+
+    if args.fail_if_regression:
+        target = next((m for m in diff.metric_deltas if m.metric == args.fail_if_regression), None)
+        if target is None:
+            avail = [m.metric for m in diff.metric_deltas]
+            raise ValueError(
+                f"Metric {args.fail_if_regression!r} not found in eval diff. Available: {avail}"
+            )
+        if target.ci_high < 0.0:
+            return 2
     return 0
 
 
@@ -151,8 +189,11 @@ def _cmd_compare(args: argparse.Namespace) -> int:
     diag_a = analyze_run(run_a, rates=rates_a)
     diag_b = analyze_run(run_b, rates=rates_b)
 
-    use_color = sys.stdout.isatty() and not args.no_color
-    print(render_compare_terminal(run_a, diag_a, run_b, diag_b, color=use_color))
+    if args.json:
+        print(compare_to_json(run_a, diag_a, run_b, diag_b))
+    else:
+        use_color = sys.stdout.isatty() and not args.no_color
+        print(render_compare_terminal(run_a, diag_a, run_b, diag_b, color=use_color))
 
     if not args.no_html:
         out_path = Path(args.out) if args.out else Path("tinker_compare.html")
@@ -160,7 +201,8 @@ def _cmd_compare(args: argparse.Namespace) -> int:
             build_compare_html(run_a, diag_a, run_b, diag_b, sanitize_paths=args.sanitize_paths),
             out_path,
         )
-        print(f"\nHTML comparison report: {written}")
+        if not args.json:
+            print(f"\nHTML comparison report: {written}")
         if args.open:
             webbrowser.open(written.as_uri())
     return 0
@@ -189,11 +231,20 @@ def _parse_series_inputs(
 
 def _cmd_series(args: argparse.Namespace) -> int:
     labeled_paths = _parse_series_inputs(args.eval_jsonls, args.labels)
-    runs = [(label, load_eval_jsonl(path)) for label, path in labeled_paths]
+    runs = []
+    loader_warns: list[str] = []
+    for label, path in labeled_paths:
+        eps, warns = load_eval_jsonl_with_warnings(path)
+        runs.append((label, eps))
+        loader_warns.extend(warns)
     summary = analyze_eval_series(
         runs,
         primary_metric=args.metric,
         title=args.title,
+        cluster_by=args.cluster_by,
+        n_boot=args.n_boot,
+        seed=args.seed,
+        loader_warnings=loader_warns,
     )
     if args.json:
         print(series_to_json(summary))
@@ -264,9 +315,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_ins.add_argument(
         "--fetch-pricing", action="store_true", help="Fetch live Tinker pricing from models.json."
     )
-    p_ins.add_argument(
-        "--sanitize-paths", action="store_true", help="Redact local home directory paths in HTML."
-    )
+    p_ins.add_argument("--sanitize-paths", action="store_true", help=_SANITIZE_PATHS_HELP)
     p_ins.set_defaults(func=_cmd_inspect)
 
     # diff
@@ -277,12 +326,37 @@ def _build_parser() -> argparse.ArgumentParser:
     p_diff.add_argument("final_jsonl", help="Final checkpoint eval JSONL.")
     p_diff.add_argument("--base-label", help="Display label for base.")
     p_diff.add_argument("--final-label", help="Display label for final.")
+    p_diff.add_argument("--metric", help="Primary metric override (default: auto-detected).")
+    p_diff.add_argument(
+        "--seed",
+        type=int,
+        default=DEFAULT_SEED,
+        help=f"Bootstrap RNG seed (default: {DEFAULT_SEED}).",
+    )
+    p_diff.add_argument(
+        "--n-boot",
+        type=int,
+        default=DEFAULT_N_BOOT,
+        help=f"Bootstrap resamples (default: {DEFAULT_N_BOOT}).",
+    )
+    p_diff.add_argument(
+        "--cluster-by",
+        help=(
+            "Optional row field with >=5 distinct values to cluster-bootstrap by "
+            "(e.g. pattern, family)."
+        ),
+    )
+    p_diff.add_argument(
+        "--fail-if-regression",
+        metavar="METRIC",
+        help="Exit with code 2 when the 95%% CI upper bound for METRIC is < 0.",
+    )
     p_diff.add_argument("--out", help="Output HTML path (default: ./tinker_eval_diff.html).")
     p_diff.add_argument("--no-html", action="store_true", help="Skip writing HTML.")
     p_diff.add_argument("--open", action="store_true", help="Open HTML in browser.")
     p_diff.add_argument("--json", action="store_true", help="Emit JSON summary to stdout.")
     p_diff.add_argument("--no-color", action="store_true", help="Disable ANSI colors.")
-    p_diff.add_argument("--sanitize-paths", action="store_true", help="Redact local paths in HTML.")
+    p_diff.add_argument("--sanitize-paths", action="store_true", help=_SANITIZE_PATHS_HELP)
     p_diff.set_defaults(func=_cmd_diff)
 
     # compare
@@ -292,6 +366,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_cmp.add_argument("--out", help="Output HTML path (default: ./tinker_compare.html).")
     p_cmp.add_argument("--no-html", action="store_true", help="Skip writing HTML.")
     p_cmp.add_argument("--open", action="store_true", help="Open HTML in browser.")
+    p_cmp.add_argument("--json", action="store_true", help="Emit JSON comparison to stdout.")
     p_cmp.add_argument("--no-color", action="store_true", help="Disable ANSI colors.")
     p_cmp.add_argument(
         "--rates", help="Custom USD/1M token rates: prefill,cached_prefill,sample,train."
@@ -299,7 +374,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_cmp.add_argument(
         "--fetch-pricing", action="store_true", help="Fetch live Tinker pricing from models.json."
     )
-    p_cmp.add_argument("--sanitize-paths", action="store_true", help="Redact local paths in HTML.")
+    p_cmp.add_argument("--sanitize-paths", action="store_true", help=_SANITIZE_PATHS_HELP)
     p_cmp.set_defaults(func=_cmd_compare)
 
     # series
@@ -318,12 +393,31 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_ser.add_argument("--metric", help="Primary metric override (default: auto-detected).")
     p_ser.add_argument("--title", help="Report title.")
+    p_ser.add_argument(
+        "--seed",
+        type=int,
+        default=DEFAULT_SEED,
+        help=f"Bootstrap RNG seed (default: {DEFAULT_SEED}).",
+    )
+    p_ser.add_argument(
+        "--n-boot",
+        type=int,
+        default=DEFAULT_N_BOOT,
+        help=f"Bootstrap resamples (default: {DEFAULT_N_BOOT}).",
+    )
+    p_ser.add_argument(
+        "--cluster-by",
+        help=(
+            "Optional row field with >=5 distinct values to cluster-bootstrap by "
+            "(e.g. pattern, family)."
+        ),
+    )
     p_ser.add_argument("--out", help="Output HTML path (default: ./tinker_series.html).")
     p_ser.add_argument("--no-html", action="store_true", help="Skip writing HTML.")
     p_ser.add_argument("--open", action="store_true", help="Open HTML in browser.")
     p_ser.add_argument("--json", action="store_true", help="Emit JSON summary to stdout.")
     p_ser.add_argument("--no-color", action="store_true", help="Disable ANSI colors.")
-    p_ser.add_argument("--sanitize-paths", action="store_true", help="Redact local paths in HTML.")
+    p_ser.add_argument("--sanitize-paths", action="store_true", help=_SANITIZE_PATHS_HELP)
     p_ser.set_defaults(func=_cmd_series)
 
     # watch
@@ -364,12 +458,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    raw_argv = list(sys.argv[1:] if argv is None else argv)
-    known_subcommands = {"inspect", "diff", "compare", "series", "watch"}
-    # Allow `tinker-inspect /path/to/log_dir` shorthand without typing `inspect`.
-    if raw_argv and raw_argv[0] not in known_subcommands and not raw_argv[0].startswith("-"):
-        raw_argv = ["inspect", *raw_argv]
-
+    raw_argv = _rewrite_shorthand_argv(list(sys.argv[1:] if argv is None else argv))
     parser = _build_parser()
     args = parser.parse_args(raw_argv)
     if not hasattr(args, "func"):
