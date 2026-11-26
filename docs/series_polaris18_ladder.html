@@ -308,7 +308,7 @@
         var accent = isDark() ? "#60a5fa" : "#2563eb";
         var good = isDark() ? "#34d399" : "#059669";
 
-        var W = 520, H = 260, pL = 52, pR = 24, pT = 22, pB = 52;
+        var W = 540, H = 280, pL = 52, pR = 32, pT = 28, pB = 54;
         var ys = [];
         pts.forEach(function (p, i) {
           ys.push(p.primary_mean);
@@ -317,23 +317,28 @@
             ys.push(basePt.primary_mean + p.ci_high);
           }
         });
-        var yMin = Math.max(0, Math.min.apply(null, ys) - 0.08);
-        var yMax = Math.min(1.02, Math.max.apply(null, ys) + 0.08);
-        if (yMax - yMin < 0.15) {
-          yMin = Math.max(0, yMin - 0.08);
-          yMax = Math.min(1.02, yMax + 0.08);
+        var yMin = Math.max(0, Math.floor((Math.min.apply(null, ys) - 0.05) * 10) / 10);
+        var yMax = Math.min(1.0, Math.ceil((Math.max.apply(null, ys) + 0.06) * 10) / 10);
+        if (yMax - yMin < 0.25) {
+          yMin = Math.max(0, yMin - 0.1);
+          yMax = Math.min(1.0, yMax + 0.1);
         }
+        var xPad = 34;
         function xp(i) {
           if (pts.length <= 1) return (pL + W - pR) / 2;
-          return pL + (W - pL - pR) * (i / (pts.length - 1));
+          return (pL + xPad) + (W - pL - pR - 2 * xPad) * (i / (pts.length - 1));
         }
         function yp(v) {
           return pT + (H - pT - pB) * (1 - (v - yMin) / Math.max(yMax - yMin, 1e-6));
         }
+        var halo = (
+          'paint-order="stroke" stroke="' + bg +
+          '" stroke-width="4" stroke-linejoin="round"'
+        );
         var svg1 = ['<svg viewBox="0 0 ' + W + ' ' + H + '">'];
         svg1.push(
           '<rect x="' + pL + '" y="' + pT + '" width="' + (W - pL - pR) +
-          '" height="' + (H - pT - pB) + '" fill="' + bg + '" stroke="' + grid + '"/>'
+          '" height="' + (H - pT - pB) + '" rx="4" fill="' + bg + '" stroke="' + grid + '"/>'
         );
         for (var g = 0; g <= 4; g++) {
           var v = yMin + (yMax - yMin) * (g / 4);
@@ -351,53 +356,56 @@
         var by = yp(basePt.primary_mean);
         svg1.push(
           '<line x1="' + pL + '" y1="' + by.toFixed(1) + '" x2="' + (W - pR) +
-          '" y2="' + by.toFixed(1) + '" stroke="#94a3b8" stroke-dasharray="5,4"/>'
+          '" y2="' + by.toFixed(1) + '" stroke="#94a3b8" stroke-dasharray="5,4" opacity="0.7"/>'
         );
+        // Subtle translucent 95% CI range bands behind line & dots
+        pts.forEach(function (p, i) {
+          if (i === 0) return;
+          var cx = xp(i);
+          var lo = yp(Math.max(yMin, basePt.primary_mean + p.ci_low));
+          var hi = yp(Math.min(yMax, basePt.primary_mean + p.ci_high));
+          var bandCol = p === bestPt ? good : accent;
+          svg1.push(
+            '<line x1="' + cx.toFixed(1) + '" y1="' + lo.toFixed(1) +
+            '" x2="' + cx.toFixed(1) + '" y2="' + hi.toFixed(1) +
+            '" stroke="' + bandCol + '" stroke-width="5" stroke-linecap="round" opacity="0.22"/>'
+          );
+        });
         var linePts = pts.map(function (p, i) {
           return xp(i).toFixed(1) + "," + yp(p.primary_mean).toFixed(1);
         }).join(" ");
         svg1.push(
           '<polyline points="' + linePts + '" fill="none" stroke="' + accent +
-          '" stroke-width="2.4"/>'
+          '" stroke-width="2.2" stroke-linejoin="round"/>'
         );
         pts.forEach(function (p, i) {
           var cx = xp(i), cy = yp(p.primary_mean);
-          if (i > 0) {
-            var lo = yp(Math.max(yMin, basePt.primary_mean + p.ci_low));
-            var hi = yp(Math.min(yMax, basePt.primary_mean + p.ci_high));
-            svg1.push(
-              '<line x1="' + cx.toFixed(1) + '" y1="' + lo.toFixed(1) +
-              '" x2="' + cx.toFixed(1) + '" y2="' + hi.toFixed(1) +
-              '" stroke="' + accent + '" stroke-width="1.5" opacity="0.6"/>'
-            );
-            svg1.push(
-              '<line x1="' + (cx - 4).toFixed(1) + '" y1="' + lo.toFixed(1) +
-              '" x2="' + (cx + 4).toFixed(1) + '" y2="' + lo.toFixed(1) +
-              '" stroke="' + accent + '" stroke-width="1.3" opacity="0.6"/>'
-            );
-            svg1.push(
-              '<line x1="' + (cx - 4).toFixed(1) + '" y1="' + hi.toFixed(1) +
-              '" x2="' + (cx + 4).toFixed(1) + '" y2="' + hi.toFixed(1) +
-              '" stroke="' + accent + '" stroke-width="1.3" opacity="0.6"/>'
-            );
-          }
           var dotCol = p === bestPt ? good : accent;
           svg1.push(
             '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) +
-            '" r="5" fill="' + dotCol + '" stroke="#ffffff" stroke-width="1.5"/>'
+            '" r="4.8" fill="' + dotCol + '" stroke="#ffffff" stroke-width="1.5"/>'
           );
+          var lblAnchor = i === pts.length - 1 ? "end" : "start";
+          var lblDx = i === pts.length - 1 ? -8 : 8;
+          var lblDy = cy < pT + 26 ? 15 : -8;
           svg1.push(
-            '<text x="' + cx.toFixed(1) + '" y="' + (cy - 9).toFixed(1) +
-            '" text-anchor="middle" font-size="10.5" font-weight="700" fill="' + fg + '">' +
-            fmtPct(p.primary_mean) + '</text>'
+            '<text x="' + (cx + lblDx).toFixed(1) + '" y="' + (cy + lblDy).toFixed(1) +
+            '" text-anchor="' + lblAnchor + '" font-size="10.5" font-weight="700" fill="' +
+            fg + '" ' + halo + '>' + fmtPct(p.primary_mean) + '</text>'
           );
-          var shortLbl = p.label.length > 14 ? p.label.slice(0, 13) + "…" : p.label;
+          var shortLbl = p.label.length > 13 ? p.label.slice(0, 12) + "…" : p.label;
+          var xLblY = pts.length >= 5 && i % 2 === 1 ? H - 10 : H - 24;
           svg1.push(
-            '<text x="' + cx.toFixed(1) + '" y="' + (H - 18) +
-            '" text-anchor="middle" font-size="10" fill="' + fg + '">' +
+            '<text x="' + cx.toFixed(1) + '" y="' + xLblY +
+            '" text-anchor="middle" font-size="9.8" fill="' + fg + '">' +
             esc(shortLbl) + '</text>'
           );
         });
+        svg1.push(
+          '<text x="' + (W - pR - 4) + '" y="' + (pT + 13) +
+          '" text-anchor="end" font-size="9.5" fill="' + fg + '" opacity="0.7">' +
+          'Shaded bars: 95% paired CI vs base</text>'
+        );
         svg1.push("</svg>");
         document.getElementById("chart-progress").innerHTML = svg1.join("");
 
@@ -412,8 +420,8 @@
         });
         var xMin = Math.min.apply(null, xs), xMax = Math.max.apply(null, xs);
         var xSpan = Math.max(xMax - xMin, 1);
-        xMin = Math.max(0, xMin - 0.15 * xSpan);
-        xMax = xMax + 0.2 * xSpan;
+        xMin = Math.max(0, xMin - 0.16 * xSpan);
+        xMax = xMax + 0.16 * xSpan;
         function xq(val) {
           return pL + (W - pL - pR) * ((val - xMin) / Math.max(xMax - xMin, 1e-6));
         }
@@ -421,7 +429,7 @@
         var svg2 = ['<svg viewBox="0 0 ' + W + ' ' + H + '">'];
         svg2.push(
           '<rect x="' + pL + '" y="' + pT + '" width="' + (W - pL - pR) +
-          '" height="' + (H - pT - pB) + '" fill="' + bg + '" stroke="' + grid + '"/>'
+          '" height="' + (H - pT - pB) + '" rx="4" fill="' + bg + '" stroke="' + grid + '"/>'
         );
         for (var g2 = 0; g2 <= 4; g2++) {
           var v2 = yMin + (yMax - yMin) * (g2 / 4);
@@ -463,25 +471,87 @@
           }).join(" ");
           svg2.push(
             '<polyline points="' + fStr + '" fill="none" stroke="' + good +
-            '" stroke-width="2" stroke-dasharray="5,3"/>'
+            '" stroke-width="2" stroke-dasharray="5,3" opacity="0.8"/>'
           );
         }
         var colors = ["#64748b", "#2563eb", "#7c3aed", "#059669", "#d97706", "#db2777"];
+        var placedBoxes = [];
+        function boxesOverlap(a, b) {
+          return !(a.x2 < b.x1 || a.x1 > b.x2 || a.y2 < b.y1 || a.y1 > b.y2);
+        }
+        function inPlot(box) {
+          return (
+            box.x1 >= pL + 2 && box.x2 <= W - pR - 2 &&
+            box.y1 >= pT + 2 && box.y2 <= H - pB - 2
+          );
+        }
+        // Reserve small boxes around every dot so labels never cover dots
+        pPts.forEach(function (p) {
+          var xval = useTok ? p.mean_output_tokens : p.mean_turns;
+          var dx0 = xq(xval), dy0 = yp(p.primary_mean);
+          placedBoxes.push({ x1: dx0 - 7, y1: dy0 - 7, x2: dx0 + 7, y2: dy0 + 7 });
+        });
+        var candidateOffsets = [
+          [-10, -4, "end"],
+          [10, -4, "start"],
+          [-10, 14, "end"],
+          [10, 14, "start"],
+          [-10, -18, "end"],
+          [10, -18, "start"],
+          [-10, 26, "end"],
+          [10, 26, "start"],
+          [0, -14, "middle"],
+          [0, 20, "middle"],
+          [-14, -30, "end"],
+          [-14, 34, "end"],
+        ];
         pPts.forEach(function (p, i) {
           var xval = useTok ? p.mean_output_tokens : p.mean_turns;
           var cx = xq(xval), cy = yp(p.primary_mean);
           var col = colors[i % colors.length];
           svg2.push(
             '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) +
-            '" r="5.5" fill="' + col + '" stroke="#ffffff" stroke-width="1.5"/>'
+            '" r="5" fill="' + col + '" stroke="#ffffff" stroke-width="1.5"/>'
           );
-          var anchor = cx > W - pR - 95 ? "end" : "start";
-          var dx = anchor === "end" ? -8 : 8;
-          var dy = i % 2 === 0 ? -7 : 14;
+          var tw = p.label.length * 6.2 + 6;
+          var th = 14;
+          var chosen = null;
+          for (var c = 0; c < candidateOffsets.length; c++) {
+            var cand = candidateOffsets[c];
+            var lx = cx + cand[0], ly = cy + cand[1], anc = cand[2];
+            var x1 = anc === "start" ? lx : (anc === "end" ? lx - tw : lx - tw / 2);
+            var box = { x1: x1 - 2, y1: ly - th + 2, x2: x1 + tw + 2, y2: ly + 3 };
+            if (!inPlot(box)) continue;
+            var hit = false;
+            for (var k = 0; k < placedBoxes.length; k++) {
+              if (boxesOverlap(box, placedBoxes[k])) { hit = true; break; }
+            }
+            if (!hit) { chosen = { lx: lx, ly: ly, anc: anc, box: box }; break; }
+          }
+          if (!chosen) {
+            var fallAnc = cx > W - pR - 110 ? "end" : "start";
+            var fallLx = cx + (fallAnc === "end" ? -10 : 10);
+            var fallLy = Math.max(pT + 14, Math.min(H - pB - 6, cy + (i % 2 === 0 ? -12 : 16)));
+            chosen = {
+              lx: fallLx,
+              ly: fallLy,
+              anc: fallAnc,
+              box: { x1: fallLx - tw, y1: fallLy - th, x2: fallLx + tw, y2: fallLy + 3 },
+            };
+          }
+          placedBoxes.push(chosen.box);
+          var dist = Math.hypot(chosen.lx - cx, (chosen.ly - 4) - cy);
+          if (dist > 18) {
+            svg2.push(
+              '<line x1="' + cx.toFixed(1) + '" y1="' + cy.toFixed(1) +
+              '" x2="' + chosen.lx.toFixed(1) + '" y2="' + (chosen.ly - 3).toFixed(1) +
+              '" stroke="' + col + '" stroke-width="1" opacity="0.45"/>'
+            );
+          }
           svg2.push(
-            '<text x="' + (cx + dx).toFixed(1) + '" y="' + (cy + dy).toFixed(1) +
-            '" text-anchor="' + anchor + '" font-size="10.5" font-weight="600" fill="' +
-            col + '">' + esc(p.label) + '</text>'
+            '<text x="' + chosen.lx.toFixed(1) + '" y="' + chosen.ly.toFixed(1) +
+            '" text-anchor="' + chosen.anc + '" font-size="10.2" font-weight="600" fill="' +
+            col + '" ' + halo + '>' + esc(p.label) + '</text>'
           );
         });
         var xAxisLbl = useTok ? "Mean Output Tokens (lower is faster)" : "Mean Turns";
