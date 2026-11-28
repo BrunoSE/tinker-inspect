@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -290,7 +291,10 @@ def test_series_terminal_json_and_html_report():
 
 
 def test_series_on_real_ood_polaris18_evals():
-    evals_dir = Path("/Users/bruno/Documents/inkling-experiments/evals")
+    env_dir = os.environ.get("TINKER_INSPECT_EVALS_DIR")
+    if not env_dir:
+        pytest.skip("Set TINKER_INSPECT_EVALS_DIR to run real OOD Polaris 1/8 eval smoke test")
+    evals_dir = Path(env_dir)
     specs = [
         ("Base CoT", evals_dir / "base_polaris18_4096.jsonl"),
         ("RL v2 Step16", evals_dir / "final_v2_step16_polaris18_4096.jsonl"),

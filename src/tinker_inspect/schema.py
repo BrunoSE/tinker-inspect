@@ -149,6 +149,8 @@ class SpanRecord:
     duration: float
     wall_start: float
     wall_end: float
+    group_idx: int | None = None
+    attributes: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -388,6 +390,8 @@ class EvalEpisode:
             return "ungraded"
         if self.hit_max_turns or self.stop_reason == "max_turns":
             return "turn_limit"
+        if self.stop_reason in ("timeout", "rollout_timeout"):
+            return "timeout"
         if self.truncated_thinking or self.stop_reason in ("length", "max_tokens"):
             return "token_limit"
         if self.parse_ok is False or self.stop_reason == "parse_error":

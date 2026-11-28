@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -183,6 +186,27 @@ def test_load_run_merges_step_metrics_and_separates_discard_rows(tmp_path: Path)
     assert "run_python" in run.logtree_groups[0][0]["trajectories"][0]["excerpt"]
 
 
+def test_load_run_parses_timing_span_group_idx_attributes(tmp_path: Path):
+    run_dir = make_synthetic_run(tmp_path / "run_span_gid", num_steps=1)
+    tp = run_dir / "timing_spans.jsonl"
+    row = json.loads(tp.read_text().splitlines()[0])
+    gid = 0
+    for sp in row["spans"]:
+        if sp["name"] == "do_group_rollout_and_filter_constant_reward":
+            sp["attributes"] = {"group_idx": gid}
+            gid += 1
+    tp.write_text(json.dumps(row) + "\n", encoding="utf-8")
+
+    run = load_run(run_dir)
+    rollout_spans = [
+        sp
+        for sp in run.timings[0].spans
+        if sp.name == "do_group_rollout_and_filter_constant_reward"
+    ]
+    assert [sp.group_idx for sp in rollout_spans] == [0, 1, 2, 3]
+    assert rollout_spans[2].attributes == {"group_idx": 2}
+
+
 def test_load_eval_jsonl_formats(tmp_path: Path):
     base_p, _ = make_synthetic_eval_pair(tmp_path / "evals")
     eps = load_eval_jsonl(base_p)
@@ -334,3 +358,181 @@ def test_load_eval_jsonl_git_tool_rl_format(tmp_path: Path):
     assert eps[1].final_answer_chars == 0
     assert eps[1].end_state == "turn_limit"
     assert eps[1].graded is False
+
+
+def test_load_eval_jsonl_zstd_fallback_and_missing_binary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    base_p, _ = make_synthetic_eval_pair(tmp_path / "evals")
+    zst_path = tmp_path / "base_compressed.jsonl.zst"
+    zstd_bin = shutil.which("zstd")
+    if zstd_bin is not None:
+        proc = subprocess.run(
+            [zstd_bin, "-q", "-f", str(base_p), "-o", str(zst_path)],
+            capture_output=True,
+            check=False,
+        )
+        assert proc.returncode == 0
+        eps = load_eval_jsonl(zst_path)
+        assert len(eps) == 8
+        assert eps[0].task_key == "task:0"
+
+        # Simulate missing zstd binary on Python <3.14
+        monkeypatch.setattr("tinker_inspect.loader.shutil.which", lambda _name: None)
+        with pytest.raises(ValueError, match="Compressed .zst"):
+            load_eval_jsonl(zst_path)
+    else:
+        zst_path.write_bytes(b"\x28\xb5\x2f\xfd\x00\x00\x00")
+        with pytest.raises(ValueError, match="Compressed .zst"):
+            load_eval_jsonl(zst_path)
+
+
+def test_load_eval_jsonl_prime_hosted_trace_format(tmp_path: Path):
+    prime_file = tmp_path / "prime_traces.jsonl"
+    rows = [
+        {
+            "id": "ep_001",
+            "attempt": 0,
+            "ok": True,
+            "errors": [],
+            "task": {
+                "type": "GitTask",
+                "data": {
+                    "id": "8245edc8d885",
+                    "prompt": "Read settings.ini and copy token to out.txt",
+                    "split": "fs_basic",
+                    "family": "copy-value",
+                    "episode_type": "fs",
+                    "level": 5,
+                },
+            },
+            "traces": [
+                {
+                    "id": "tr_001",
+                    "ok": True,
+                    "reward": 1.0,
+                    "rewards": {"shaped_reward": {"score": 1.0, "weight": 1.0}},
+                    "metrics": {"outcome": 1.0, "success": 1.0},
+                    "num_input_tokens": 320,
+                    "num_output_tokens": 45,
+                    "num_turns": 2,
+                    "stop_condition": "completed",
+                    "is_truncated": False,
+                    "is_format_violation": False,
+                    "has_error": False,
+                    "errors": [],
+                    "nodes": [
+                        {"message": {"role": "system", "content": "You are an assistant."}},
+                        {"message": {"role": "user", "content": "Read settings.ini"}},
+                        {
+                            "message": {
+                                "role": "assistant",
+                                "content": "",
+                                "tool_calls": [
+                                    {"function": {"name": "read_file", "arguments": "{}"}}
+                                ],
+                            }
+                        },
+                        {"message": {"role": "tool", "content": "token=abc"}},
+                        {"message": {"role": "assistant", "content": "Done."}},
+                    ],
+                }
+            ],
+        },
+        {
+            "id": "ep_002",
+            "ok": True,
+            "task": {
+                "data": {
+                    "id": "9999deadbeef",
+                    "prompt": "Direct node trace prompt",
+                    "split": "fs_hard",
+                    "family": "merge-patch",
+                }
+            },
+            "reward": 0.0,
+            "metrics": {"outcome": 0.0, "success": 0.0},
+            "num_turns": 1,
+            "is_truncated": True,
+            "nodes": [
+                {"message": {"role": "user", "content": "Direct node trace prompt"}},
+                {"message": {"role": "assistant", "content": "Thinking..."}},
+            ],
+        },
+    ]
+    prime_file.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+
+    eps = load_eval_jsonl(prime_file)
+    assert len(eps) == 2
+    assert eps[0].task_key == "task:8245edc8d885"
+    assert eps[0].split == "fs_basic"
+    assert eps[0].episode_type == "fs"
+    assert eps[0].metadata["family"] == "copy-value"
+    assert eps[0].num_turns == 2
+    assert eps[0].input_tokens == 320
+    assert eps[0].output_tokens == 45
+    assert eps[0].final_answer_chars == len("Done.")
+    assert eps[0].end_state == "completed"
+    assert eps[0].metrics["success"] == pytest.approx(1.0)
+
+    assert eps[1].task_key == "task:9999deadbeef"
+    assert eps[1].split == "fs_hard"
+    assert eps[1].metadata["family"] == "merge-patch"
+    assert eps[1].end_state == "token_limit"
+
+    # Optional external Prime hosted .jsonl.zst smoke test via env var (never hard-coded paths)
+    env_prime = os.environ.get("TINKER_INSPECT_PRIME_TRACE_ZST")
+    if env_prime and Path(env_prime).is_file() and shutil.which("zstd"):
+        real_eps = load_eval_jsonl(env_prime)
+        assert len(real_eps) > 0
+        assert real_eps[0].prompt
+        assert real_eps[0].messages
+
+
+def test_prime_timeout_truncated_completed_and_multisplit_warnings(tmp_path: Path):
+    from tinker_inspect.diagnostics import diff_evals
+    from tinker_inspect.series import analyze_eval_series
+
+    def _row(task_id: str, split: str, *, success: float, **extra) -> dict:
+        return {
+            "id": f"ep_{task_id}",
+            "ok": True,
+            "task": {"data": {"id": task_id, "prompt": f"Solve {task_id}", "split": split}},
+            "reward": success,
+            "metrics": {"success": success},
+            "num_turns": 2,
+            "nodes": [{"message": {"role": "assistant", "content": "done"}}],
+            **extra,
+        }
+
+    base_p = tmp_path / "base_multi.jsonl"
+    final_p = tmp_path / "final_multi.jsonl"
+    base_rows = [
+        _row("t1", "split_a", success=0.0, is_timeout=True),
+        _row(
+            "t2",
+            "split_b",
+            success=1.0,
+            stop_condition="agent_completed",
+            is_truncated=True,
+        ),
+    ]
+    final_rows = [
+        _row("t1", "split_a", success=1.0, stop_condition="agent_completed"),
+        _row("t2", "split_b", success=1.0, stop_condition="agent_completed"),
+    ]
+    base_p.write_text("\n".join(json.dumps(r) for r in base_rows) + "\n", encoding="utf-8")
+    final_p.write_text("\n".join(json.dumps(r) for r in final_rows) + "\n", encoding="utf-8")
+
+    base_eps = load_eval_jsonl(base_p)
+    final_eps = load_eval_jsonl(final_p)
+    assert base_eps[0].end_state == "timeout"
+    assert base_eps[1].end_state == "completed"
+    assert base_eps[1].metadata.get("is_truncated") is True
+
+    diff = diff_evals(base_eps, final_eps, base_label="Base", final_label="Final")
+    assert any("Multiple splits pooled" in w for w in diff.warnings)
+    assert any("is_truncated=True" in w for w in diff.warnings)
+
+    series = analyze_eval_series([("Base", base_eps), ("Final", final_eps)])
+    assert any("Multiple splits pooled" in w for w in series.warnings)

@@ -14,6 +14,7 @@ from tinker_inspect.html_report import (
     build_compare_html,
     build_eval_diff_html,
     build_run_report_html,
+    check_html_output_path,
     write_html,
 )
 from tinker_inspect.loader import load_eval_jsonl_with_warnings, load_run
@@ -86,7 +87,60 @@ def _resolve_rates(
     return None
 
 
+_FORCE_HELP = "Overwrite an existing default HTML output file."
+
+
+def _clean_eval_stem(path: str | Path) -> str:
+    name = Path(path).name
+    for suffix in (".zst", ".jsonl", ".json"):
+        if name.lower().endswith(suffix):
+            name = name[: -len(suffix)]
+    return name or Path(path).stem
+
+
+def _default_eval_labels(paths: Sequence[str | Path]) -> list[str]:
+    """Derive concise display labels, disambiguating identical stems via parent dirs."""
+    resolved = [Path(p).expanduser().resolve() for p in paths]
+    stems = [_clean_eval_stem(p) for p in resolved]
+    if len(set(stems)) == len(stems):
+        return stems
+    # Find the shallowest parent level where paths diverge (handles .../runA/.../00000.jsonl.zst).
+    parts_list = [list(reversed(p.parent.parts)) for p in resolved]
+    max_depth = min((len(parts) for parts in parts_list), default=0)
+    for depth in range(max_depth):
+        cands = [parts[depth] for parts in parts_list]
+        if len(set(cands)) == len(cands):
+            return cands
+    return [f"{s} ({i + 1})" for i, s in enumerate(stems)]
+
+
 def _cmd_inspect(args: argparse.Namespace) -> int:
+    log_root = Path(args.log_dir).expanduser().resolve()
+    out_path = Path(args.out) if args.out else log_root / "tinker_inspect.html"
+    if not args.no_html:
+        check_html_output_path(out_path, overwrite=bool(args.force or args.out))
+
+    before_list: list[str] = list(args.eval_before or [])
+    after_list: list[str] = list(args.eval_after or [])
+    base_labels: list[str] = list(args.base_label or [])
+    final_labels: list[str] = list(args.final_label or [])
+
+    if len(before_list) != len(after_list):
+        raise ValueError(
+            "--eval-before and --eval-after must be provided the same number of times "
+            f"(got {len(before_list)} before vs {len(after_list)} after)."
+        )
+    if base_labels and len(base_labels) != len(before_list):
+        raise ValueError(
+            f"--base-label must be omitted or provided once per eval pair "
+            f"(got {len(base_labels)} labels for {len(before_list)} eval pairs)."
+        )
+    if final_labels and len(final_labels) != len(after_list):
+        raise ValueError(
+            f"--final-label must be omitted or provided once per eval pair "
+            f"(got {len(final_labels)} labels for {len(after_list)} eval pairs)."
+        )
+
     run = load_run(args.log_dir)
     rates = _resolve_rates(
         run.config.get("model_name"),
@@ -95,35 +149,49 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
     )
     diag = analyze_run(run, rates=rates)
 
-    eval_diff = None
-    if args.eval_before and args.eval_after:
-        base_eps, base_warns = load_eval_jsonl_with_warnings(args.eval_before)
-        final_eps, final_warns = load_eval_jsonl_with_warnings(args.eval_after)
-        eval_diff = diff_evals(
-            base_eps,
-            final_eps,
-            base_label=args.base_label or Path(args.eval_before).stem,
-            final_label=args.final_label or Path(args.eval_after).stem,
-            loader_warnings=base_warns + final_warns,
+    eval_diffs = []
+    for idx, (b_path, f_path) in enumerate(zip(before_list, after_list, strict=True)):
+        base_eps, base_warns = load_eval_jsonl_with_warnings(b_path)
+        final_eps, final_warns = load_eval_jsonl_with_warnings(f_path)
+        def_b, def_f = _default_eval_labels([b_path, f_path])
+        b_lbl = base_labels[idx] if base_labels else def_b
+        f_lbl = final_labels[idx] if final_labels else def_f
+        eval_diffs.append(
+            diff_evals(
+                base_eps,
+                final_eps,
+                base_label=b_lbl,
+                final_label=f_lbl,
+                loader_warnings=base_warns + final_warns,
+            )
         )
-    elif args.eval_before or args.eval_after:
-        raise SystemExit("error: --eval-before and --eval-after must be provided together.")
+
+    eval_diff = eval_diffs[0] if eval_diffs else None
+    extra_eval_diffs = eval_diffs[1:] if len(eval_diffs) > 1 else []
 
     if args.json:
-        print(diagnostics_to_json(diag, eval_diff=eval_diff))
+        print(diagnostics_to_json(diag, eval_diff=eval_diff, extra_eval_diffs=extra_eval_diffs))
     else:
         use_color = sys.stdout.isatty() and not args.no_color
-        print(render_run_terminal(run, diag, eval_diff=eval_diff, color=use_color))
+        print(
+            render_run_terminal(
+                run,
+                diag,
+                eval_diff=eval_diff,
+                extra_eval_diffs=extra_eval_diffs,
+                color=use_color,
+            )
+        )
 
     if not args.no_html:
-        out_path = Path(args.out) if args.out else Path(run.log_dir) / "tinker_inspect.html"
         html = build_run_report_html(
             run,
             diag,
             eval_diff=eval_diff,
+            extra_eval_diffs=extra_eval_diffs,
             sanitize_paths=args.sanitize_paths,
         )
-        written = write_html(html, out_path)
+        written = write_html(html, out_path, overwrite=bool(args.force or args.out))
         if not args.json:
             print(f"\nHTML report: {written}")
         if args.open:
@@ -135,13 +203,18 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
 
 
 def _cmd_diff(args: argparse.Namespace) -> int:
+    out_path = Path(args.out) if args.out else Path("tinker_eval_diff.html")
+    if not args.no_html:
+        check_html_output_path(out_path, overwrite=bool(args.force or args.out))
+
     base_eps, base_warns = load_eval_jsonl_with_warnings(args.base_jsonl)
     final_eps, final_warns = load_eval_jsonl_with_warnings(args.final_jsonl)
+    def_b, def_f = _default_eval_labels([args.base_jsonl, args.final_jsonl])
     diff = diff_evals(
         base_eps,
         final_eps,
-        base_label=args.base_label or Path(args.base_jsonl).stem,
-        final_label=args.final_label or Path(args.final_jsonl).stem,
+        base_label=args.base_label or def_b,
+        final_label=args.final_label or def_f,
         primary_metric=args.metric,
         cluster_by=args.cluster_by,
         n_boot=args.n_boot,
@@ -155,10 +228,10 @@ def _cmd_diff(args: argparse.Namespace) -> int:
         print(render_eval_diff_terminal(diff, color=use_color))
 
     if not args.no_html:
-        out_path = Path(args.out) if args.out else Path("tinker_eval_diff.html")
         written = write_html(
             build_eval_diff_html(diff, sanitize_paths=args.sanitize_paths),
             out_path,
+            overwrite=bool(args.force or args.out),
         )
         if not args.json:
             print(f"\nHTML diff report: {written}")
@@ -178,6 +251,10 @@ def _cmd_diff(args: argparse.Namespace) -> int:
 
 
 def _cmd_compare(args: argparse.Namespace) -> int:
+    out_path = Path(args.out) if args.out else Path("tinker_compare.html")
+    if not args.no_html:
+        check_html_output_path(out_path, overwrite=bool(args.force or args.out))
+
     run_a = load_run(args.run_a)
     run_b = load_run(args.run_b)
     rates_a = _resolve_rates(
@@ -196,10 +273,10 @@ def _cmd_compare(args: argparse.Namespace) -> int:
         print(render_compare_terminal(run_a, diag_a, run_b, diag_b, color=use_color))
 
     if not args.no_html:
-        out_path = Path(args.out) if args.out else Path("tinker_compare.html")
         written = write_html(
             build_compare_html(run_a, diag_a, run_b, diag_b, sanitize_paths=args.sanitize_paths),
             out_path,
+            overwrite=bool(args.force or args.out),
         )
         if not args.json:
             print(f"\nHTML comparison report: {written}")
@@ -217,19 +294,27 @@ def _parse_series_inputs(
         raise ValueError(
             f"--labels count ({len(explicit_labels)}) must match eval files ({len(raw_paths)})."
         )
-    parsed: list[tuple[str, Path]] = []
+    raw_entries: list[tuple[str | None, Path]] = []
     for idx, spec in enumerate(raw_paths):
         if not explicit_labels and "=" in spec and not Path(spec).exists():
             lbl, path_s = spec.split("=", 1)
-            parsed.append((lbl.strip() or Path(path_s).stem, Path(path_s)))
+            raw_entries.append((lbl.strip() or None, Path(path_s)))
         else:
             p = Path(spec)
-            lbl = explicit_labels[idx] if explicit_labels else p.stem
-            parsed.append((lbl, p))
-    return parsed
+            lbl = explicit_labels[idx] if explicit_labels else None
+            raw_entries.append((lbl, p))
+    defaults = _default_eval_labels([p for _, p in raw_entries])
+    return [
+        (lbl if lbl is not None else def_lbl, p)
+        for (lbl, p), def_lbl in zip(raw_entries, defaults, strict=True)
+    ]
 
 
 def _cmd_series(args: argparse.Namespace) -> int:
+    out_path = Path(args.out) if args.out else Path("tinker_series.html")
+    if not args.no_html:
+        check_html_output_path(out_path, overwrite=bool(args.force or args.out))
+
     labeled_paths = _parse_series_inputs(args.eval_jsonls, args.labels)
     runs = []
     loader_warns: list[str] = []
@@ -257,6 +342,7 @@ def _cmd_series(args: argparse.Namespace) -> int:
         written = write_html(
             build_series_html(summary, sanitize_paths=args.sanitize_paths),
             out_path,
+            overwrite=bool(args.force or args.out),
         )
         if not args.json:
             print(f"\nHTML series report: {written}")
@@ -297,6 +383,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_ins = sub.add_parser("inspect", help="Inspect a Tinker RL log_path directory (default).")
     p_ins.add_argument("log_dir", help="Path to a Tinker RL log_path directory.")
     p_ins.add_argument("--out", help="Output HTML path (default: <log_dir>/tinker_inspect.html).")
+    p_ins.add_argument("-f", "--force", action="store_true", help=_FORCE_HELP)
     p_ins.add_argument("--no-html", action="store_true", help="Skip writing the HTML report.")
     p_ins.add_argument("--open", action="store_true", help="Open the HTML report in your browser.")
     p_ins.add_argument("--json", action="store_true", help="Emit machine-readable JSON to stdout.")
@@ -305,10 +392,30 @@ def _build_parser() -> argparse.ArgumentParser:
     p_ins.add_argument(
         "--fail-on-warn", action="store_true", help="With --strict, also exit 2 on WARN."
     )
-    p_ins.add_argument("--eval-before", help="Optional base eval JSONL to attach as paired diff.")
-    p_ins.add_argument("--eval-after", help="Optional final eval JSONL to attach as paired diff.")
-    p_ins.add_argument("--base-label", help="Display label for --eval-before.")
-    p_ins.add_argument("--final-label", help="Display label for --eval-after.")
+    p_ins.add_argument(
+        "--eval-before",
+        action="append",
+        default=None,
+        help="Base eval JSONL to attach as paired diff (repeatable; pair with --eval-after).",
+    )
+    p_ins.add_argument(
+        "--eval-after",
+        action="append",
+        default=None,
+        help="Final eval JSONL to attach as paired diff (repeatable; pair with --eval-before).",
+    )
+    p_ins.add_argument(
+        "--base-label",
+        action="append",
+        default=None,
+        help="Display label for --eval-before (repeatable, matched in order).",
+    )
+    p_ins.add_argument(
+        "--final-label",
+        action="append",
+        default=None,
+        help="Display label for --eval-after (repeatable, matched in order).",
+    )
     p_ins.add_argument(
         "--rates", help="Custom USD/1M token rates: prefill,cached_prefill,sample,train."
     )
@@ -352,6 +459,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Exit with code 2 when the 95%% CI upper bound for METRIC is < 0.",
     )
     p_diff.add_argument("--out", help="Output HTML path (default: ./tinker_eval_diff.html).")
+    p_diff.add_argument("-f", "--force", action="store_true", help=_FORCE_HELP)
     p_diff.add_argument("--no-html", action="store_true", help="Skip writing HTML.")
     p_diff.add_argument("--open", action="store_true", help="Open HTML in browser.")
     p_diff.add_argument("--json", action="store_true", help="Emit JSON summary to stdout.")
@@ -364,6 +472,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_cmp.add_argument("run_a", help="First Tinker RL log_path directory.")
     p_cmp.add_argument("run_b", help="Second Tinker RL log_path directory.")
     p_cmp.add_argument("--out", help="Output HTML path (default: ./tinker_compare.html).")
+    p_cmp.add_argument("-f", "--force", action="store_true", help=_FORCE_HELP)
     p_cmp.add_argument("--no-html", action="store_true", help="Skip writing HTML.")
     p_cmp.add_argument("--open", action="store_true", help="Open HTML in browser.")
     p_cmp.add_argument("--json", action="store_true", help="Emit JSON comparison to stdout.")
@@ -413,6 +522,7 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     p_ser.add_argument("--out", help="Output HTML path (default: ./tinker_series.html).")
+    p_ser.add_argument("-f", "--force", action="store_true", help=_FORCE_HELP)
     p_ser.add_argument("--no-html", action="store_true", help="Skip writing HTML.")
     p_ser.add_argument("--open", action="store_true", help="Open HTML in browser.")
     p_ser.add_argument("--json", action="store_true", help="Emit JSON summary to stdout.")
@@ -466,7 +576,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     try:
         return int(args.func(args))
-    except (FileNotFoundError, ValueError) as exc:
+    except (FileNotFoundError, FileExistsError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

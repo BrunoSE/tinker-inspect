@@ -98,6 +98,8 @@ def _serialize_run_block(
                     "duration": round(sp.duration, 4),
                     "wall_start": round(sp.wall_start, 4),
                     "wall_end": round(sp.wall_end, 4),
+                    **({"group_idx": sp.group_idx} if sp.group_idx is not None else {}),
+                    **({"attributes": sp.attributes} if sp.attributes else {}),
                 }
                 for sp in t.spans
             ],
@@ -347,8 +349,20 @@ def build_compare_html(
     return _assemble_html(f"tinker-inspect compare — {run_a.name} vs {run_b.name}", payload)
 
 
-def write_html(html: str, path: str | Path) -> Path:
+def check_html_output_path(path: str | Path, *, overwrite: bool = True) -> Path:
+    """Validate an HTML destination before running analysis or printing output."""
     out = Path(path).expanduser().resolve()
+    if not overwrite and out.exists():
+        raise FileExistsError(
+            f"Refusing to overwrite existing HTML file: {out} "
+            "(pass --force to overwrite, --out PATH to specify a destination, "
+            "or --no-html to skip HTML)."
+        )
+    return out
+
+
+def write_html(html: str, path: str | Path, *, overwrite: bool = True) -> Path:
+    out = check_html_output_path(path, overwrite=overwrite)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(html, encoding="utf-8")
     return out

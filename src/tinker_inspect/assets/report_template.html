@@ -6,6 +6,7 @@
 <title>__TITLE__</title>
 <style>
 :root {
+  color-scheme: light;
   --bg: #f8fafc;
   --surface: #ffffff;
   --surface-2: #f1f5f9;
@@ -35,6 +36,7 @@
   --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
 }
 [data-theme="dark"] {
+  color-scheme: dark;
   --bg: #0b0f19;
   --surface: #111827;
   --surface-2: #1e293b;
@@ -126,6 +128,7 @@ body {
 .pill.warn { background: var(--amber-bg); border-color: var(--amber-bd); color: var(--amber); }
 .pill.fail { background: var(--red-bg); border-color: var(--red-bd); color: var(--red); }
 .pill.info { background: var(--blue-bg); border-color: var(--blue-bd); color: var(--blue); }
+.pill.purple { background: rgba(124, 58, 237, 0.14); border-color: rgba(167, 139, 250, 0.4); color: var(--purple); }
 .nav {
   display: flex;
   align-items: center;
@@ -171,7 +174,7 @@ body {
 .section-sub { color: var(--text-dim); font-size: 12.5px; }
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(205px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 195px), 1fr));
   gap: 11px;
 }
 .card {
@@ -180,6 +183,7 @@ body {
   border-radius: 10px;
   padding: 14px 16px;
   box-shadow: var(--shadow);
+  min-width: 0;
 }
 .card.alert-warn { border-left: 3px solid var(--amber); }
 .card.alert-fail { border-left: 3px solid var(--red); }
@@ -191,7 +195,7 @@ body {
   font-weight: 600;
 }
 .kpi-val {
-  font-size: 22px;
+  font-size: clamp(18px, 2.2vw, 22px);
   font-weight: 700;
   margin-top: 4px;
   letter-spacing: -0.02em;
@@ -199,7 +203,7 @@ body {
 .kpi-sub { font-size: 12px; color: var(--text-dim); margin-top: 3px; }
 .findings-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
   gap: 10px;
 }
 .finding {
@@ -225,6 +229,7 @@ body {
   margin-top: 10px;
   background: var(--green-bg);
   border: 1px solid var(--green-bd);
+  color: var(--text);
   border-radius: 8px;
   padding: 8px 12px;
   display: flex;
@@ -234,22 +239,24 @@ body {
   flex-wrap: wrap;
   font-size: 12.5px;
 }
+.pass-summary-bar strong { color: var(--green); }
 .warn-banner {
   background: var(--amber-bg);
   border: 1px solid var(--amber-bd);
   border-left: 3px solid var(--amber);
+  color: var(--text);
   border-radius: 8px;
   padding: 10px 14px;
   margin-bottom: 12px;
   font-size: 12.5px;
 }
+.warn-banner strong { color: var(--amber); }
 .warn-banner ul { margin: 4px 0 0 18px; padding: 0; }
 .chart-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr));
   gap: 14px;
 }
-@media (max-width: 640px) { .chart-grid { grid-template-columns: 1fr; } }
 .chart-card { padding: 14px 16px; }
 .chart-header {
   display: flex;
@@ -264,7 +271,7 @@ body {
 .legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11.5px; color: var(--text-muted); }
 .legend-item { display: inline-flex; align-items: center; gap: 5px; }
 .legend-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
-.svg-wrap { position: relative; width: 100%; }
+.svg-wrap { position: relative; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .svg-wrap svg { display: block; width: 100%; height: auto; }
 .tooltip {
   position: fixed;
@@ -278,8 +285,9 @@ body {
   font-size: 12px;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
   display: none;
-  max-width: 300px;
+  max-width: min(300px, calc(100vw - 24px));
 }
+[data-theme="dark"] .tooltip { box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55); }
 .bar-track {
   height: 20px;
   border-radius: 6px;
@@ -305,6 +313,49 @@ select, input[type="search"] {
   padding: 4px 8px;
   font-size: 12.5px;
   font-family: inherit;
+  min-width: 0;
+  max-width: 100%;
+}
+select:focus, input[type="search"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.edtab {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.edtab:hover { border-color: var(--border-strong); }
+.edtab.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+@media (max-width: 768px) {
+  .topbar {
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    gap: 6px 10px;
+  }
+  .brand { flex: 1 1 0; min-width: 0; overflow-x: auto; }
+  .brand-title { flex-shrink: 0; max-width: 65vw; }
+  #themeBtn { flex-shrink: 0; order: 1; }
+  .nav { flex: 1 1 100%; order: 2; overflow-x: auto; padding-bottom: 2px; }
+  .container { padding: 14px 12px 48px; }
+  .section { scroll-margin-top: 116px; }
+  .card { padding: 12px; }
+  th, td { padding: 6px 7px; font-size: 12.5px; }
+}
+@media (max-width: 640px) {
+  .controls input[type="search"] {
+    width: 100%;
+    margin-left: 0 !important;
+  }
+  .svg-wrap svg { min-width: 480px; }
+  #ganttSvg svg { min-width: 680px; }
 }
 table {
   width: 100%;
@@ -424,17 +475,23 @@ pre.codebox {
     completed: "#059669",
     token_limit: "#d97706",
     turn_limit: "#7c3aed",
+    timeout: "#0284c7",
     parse_error: "#e11d48",
     ungraded: "#94a3b8",
     error: "#64748b",
   };
-  const END_ORDER = ["completed", "token_limit", "turn_limit", "parse_error", "ungraded", "error"];
+  const END_ORDER = ["completed", "token_limit", "turn_limit", "timeout", "parse_error", "ungraded", "error"];
   const OUTCOME_METRICS = new Set(["success", "outcome", "correct", "reward", "shaped_reward", "format_ok", "parse_ok"]);
   function isOutcomeMetric(m) { return OUTCOME_METRICS.has(m) || /_facts$/.test(m); }
   const tooltip = document.getElementById("tooltip");
 
   const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-  document.documentElement.setAttribute("data-theme", prefersDark ? "dark" : "light");
+  let initialTheme = prefersDark ? "dark" : "light";
+  try {
+    const savedTheme = localStorage.getItem("tinker-inspect-theme");
+    if (savedTheme === "dark" || savedTheme === "light") initialTheme = savedTheme;
+  } catch (e) {}
+  document.documentElement.setAttribute("data-theme", initialTheme);
 
   function esc(s) {
     return String(s ?? "")
@@ -460,7 +517,9 @@ pre.codebox {
   }
   function endPillCls(state) {
     if (state === "completed") return "pass";
-    if (state === "token_limit" || state === "turn_limit") return "warn";
+    if (state === "token_limit") return "warn";
+    if (state === "turn_limit") return "purple";
+    if (state === "timeout") return "info";
     return "fail";
   }
   function showTip(evt, html) {
@@ -523,12 +582,14 @@ pre.codebox {
       </div>
       <nav class="nav">
         ${navLinks.map(([href, label]) => `<a href="${esc(href)}">${esc(label)}</a>`).join("")}
-        <button class="btn btn-outline" id="themeBtn" type="button">Theme</button>
       </nav>
+      <button class="btn btn-outline" id="themeBtn" type="button">Theme</button>
     `;
     document.getElementById("themeBtn").addEventListener("click", () => {
       const cur = document.documentElement.getAttribute("data-theme");
-      document.documentElement.setAttribute("data-theme", cur === "dark" ? "light" : "dark");
+      const next = cur === "dark" ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", next);
+      try { localStorage.setItem("tinker-inspect-theme", next); } catch (e) {}
     });
   }
 
@@ -731,7 +792,11 @@ pre.codebox {
       .sort((a, b) => a.duration - b.duration);
     const phases = timing.spans.filter(s => ["prepare_minibatch", "train_step", "save_checkpoint"].includes(s.name));
     const bars = [
-      ...rollouts.map((s, i) => ({ label: `rollout #${i + 1} (by dur)`, kind: "rollout", ...s })),
+      ...rollouts.map((s, i) => ({
+        label: s.group_idx != null ? `group #${s.group_idx}` : `rollout #${i + 1} (by dur)`,
+        kind: "rollout",
+        ...s,
+      })),
       ...phases.map(s => ({ label: s.name, kind: s.name, ...s })),
     ];
     const maxEnd = Math.max(...bars.map(b => b.wall_end), 1);
@@ -771,13 +836,15 @@ pre.codebox {
     container.querySelectorAll(".gb").forEach(el => {
       el.addEventListener("mousemove", evt => {
         const b = bars[Number(el.dataset.idx)];
-        const clickHint = b.kind === "rollout" && onRolloutClick ? `<div class="muted" style="margin-top:3px">Click to inspect Step ${timing.step} groups</div>` : "";
+        const clickHint = b.kind === "rollout" && onRolloutClick
+          ? `<div class="muted" style="margin-top:3px">Click to inspect Step ${timing.step}${b.group_idx != null ? ` group #${b.group_idx}` : " groups"}</div>`
+          : "";
         showTip(evt, `<div style="font-weight:600">${esc(b.label)}</div><div>Duration: <span class="mono">${b.duration.toFixed(2)}s</span></div><div>Window: <span class="mono">${b.wall_start.toFixed(1)}s &rarr; ${b.wall_end.toFixed(1)}s</span></div>${clickHint}`);
       });
       el.addEventListener("mouseleave", hideTip);
       el.addEventListener("click", () => {
         const b = bars[Number(el.dataset.idx)];
-        if (b.kind === "rollout" && onRolloutClick) onRolloutClick(timing.step);
+        if (b.kind === "rollout" && onRolloutClick) onRolloutClick(timing.step, b.group_idx ?? null);
       });
     });
   }
@@ -993,7 +1060,13 @@ pre.codebox {
       ` : "";
 
       const tabsHtml = allDiffs && allDiffs.length > 1
-        ? `<div class="controls" style="margin-bottom:10px">${allDiffs.map((ed, idx) => `<button type="button" class="btn edtab ${ed === curDiff ? "active" : ""}" data-idx="${idx}">${esc(ed.base_label)} &rarr; ${esc(ed.final_label)}</button>`).join("")}</div>`
+        ? `<div class="controls" style="margin-bottom:10px">${allDiffs.map((ed, idx) => {
+            const pmd = ed.metric_deltas.find(m => m.metric === ed.primary_metric);
+            const dBadge = pmd
+              ? `<span class="mono ${pmd.ci_low > 0 ? "pos" : (pmd.ci_high < 0 ? "neg" : "muted")}">${pmd.delta >= 0 ? "+" : ""}${pmd.delta.toFixed(3)}</span>`
+              : "";
+            return `<button type="button" class="btn edtab ${ed === curDiff ? "active" : ""}" data-idx="${idx}"><span>${esc(ed.base_label)} &rarr; ${esc(ed.final_label)}</span>${dBadge}<span class="muted">n=${ed.num_tasks}</span></button>`;
+          }).join("")}</div>`
         : "";
 
       const unmatchedNote = (dObj.base_unmatched_tasks || dObj.final_unmatched_tasks)
@@ -1043,6 +1116,7 @@ pre.codebox {
       mountEl.querySelectorAll(".edtab").forEach(b => b.addEventListener("click", () => {
         curDiff = allDiffs[Number(b.dataset.idx)];
         activeMetric = curDiff.primary_metric;
+        activeFilter = "all";
         openTasks.clear();
         paint();
       }));
@@ -1098,7 +1172,7 @@ pre.codebox {
         ["#curves", "Curves"],
         ...(hasTimings ? [["#gantt", "Gantt"]] : []),
         ...(hasGroups ? [["#groups", "Groups"]] : []),
-        ...(allDiffs.length ? [["#evaldiff", "Eval Diff"]] : []),
+        ...(allDiffs.length ? [["#evaldiff", allDiffs.length > 1 ? `Eval Diffs (${allDiffs.length})` : "Eval Diff"]] : []),
         ["#config", "Config"],
       ]
     );
@@ -1150,9 +1224,9 @@ pre.codebox {
             <div class="kpi-sub">${fmtInt(tok.prefill_total)} prefill${tok.cacheable_fraction != null ? ` &middot; ${fmtPct(tok.cacheable_fraction)} ${esc((tok.cache_metric_label || "cache").toLowerCase())}` : ""}${tok.estimated_cost_usd != null ? ` &middot; $${tok.estimated_cost_usd.toFixed(2)}` : ""}</div>
           </div>
           <div class="card">
-            <div class="kpi-label">${primaryEval ? `Eval (${primaryEval.metric})` : "Sampling Idle &amp; Straggler"}</div>
+            <div class="kpi-label">${primaryEval ? `Eval (${primaryEval.metric})${allDiffs.length > 1 ? ` · 1/${allDiffs.length}` : ""}` : "Sampling Idle &amp; Straggler"}</div>
             <div class="kpi-val">${primaryEval ? `${primaryEval.base_mean.toFixed(3)} &rarr; ${primaryEval.final_mean.toFixed(3)}` : (d.sampling_idle_fraction != null ? `Idle ${fmtPct(d.sampling_idle_fraction)}` : (d.median_straggler_ratio != null ? d.median_straggler_ratio.toFixed(2) + "x" : "n/a"))}</div>
-            <div class="kpi-sub">${primaryEval ? `Delta ${primaryEval.delta >= 0 ? "+" : ""}${primaryEval.delta.toFixed(3)} [${primaryEval.ci_low >= 0 ? "+" : ""}${primaryEval.ci_low.toFixed(3)}, ${primaryEval.ci_high >= 0 ? "+" : ""}${primaryEval.ci_high.toFixed(3)}]` : `${d.median_straggler_ratio != null ? `straggler ${d.median_straggler_ratio.toFixed(2)}x` : ""}${timingSubParts.length > 1 ? ` &middot; ${timingSubParts[1]}` : ""}`}</div>
+            <div class="kpi-sub">${primaryEval ? `Delta ${primaryEval.delta >= 0 ? "+" : ""}${primaryEval.delta.toFixed(3)} [${primaryEval.ci_low >= 0 ? "+" : ""}${primaryEval.ci_low.toFixed(3)}, ${primaryEval.ci_high >= 0 ? "+" : ""}${primaryEval.ci_high.toFixed(3)}]${allDiffs.length > 1 ? ` &middot; +${allDiffs.length - 1} more in Eval Diffs` : ""}` : `${d.median_straggler_ratio != null ? `straggler ${d.median_straggler_ratio.toFixed(2)}x` : ""}${timingSubParts.length > 1 ? ` &middot; ${timingSubParts[1]}` : ""}`}</div>
           </div>
         </div>
 
@@ -1234,7 +1308,7 @@ pre.codebox {
       ${hasGroups ? `<section class="section" id="groups">
         <div class="section-head">
           <h2>Pre-Filter Group &amp; Trajectory Inspector</h2>
-          <span class="section-sub">Click any group row to inspect trajectories &amp; train_logtree.json rollout transcripts</span>
+          <span class="section-sub">Click any group row to inspect trajectories &amp; train_logtree.json details</span>
         </div>
         <div class="card" id="groupsCard"></div>
       </section>` : ""}
@@ -1262,7 +1336,7 @@ pre.codebox {
           </div>
           <div class="card">
             <div class="chart-title" style="margin-bottom:8px">Checkpoints (${run.checkpoints.length})</div>
-            ${run.checkpoints.length ? `<table><thead><tr><th>Name</th><th class="num">Batch</th><th>Sampler Path</th></tr></thead><tbody>${run.checkpoints.map(c => `<tr><td>${esc(c.name)}</td><td class="num">${c.batch}</td><td class="mono">${esc(c.sampler_path || c.state_path || "")}</td></tr>`).join("")}</tbody></table>` : `<div class="muted">No checkpoints recorded.</div>`}
+            ${run.checkpoints.length ? `<div style="overflow-x:auto"><table><thead><tr><th>Name</th><th class="num">Batch</th><th>Sampler Path</th></tr></thead><tbody>${run.checkpoints.map(c => `<tr><td>${esc(c.name)}</td><td class="num">${c.batch}</td><td class="mono">${esc(c.sampler_path || c.state_path || "")}</td></tr>`).join("")}</tbody></table></div>` : `<div class="muted">No checkpoints recorded.</div>`}
             ${run.code_diff ? `<details style="margin-top:14px"><summary style="cursor:pointer;font-weight:600">code.diff (${run.code_diff.length} chars)</summary><pre class="codebox" style="margin-top:8px">${esc(run.code_diff)}</pre></details>` : ""}
           </div>
         </div>
@@ -1308,7 +1382,7 @@ pre.codebox {
       <div class="bar-track thin" style="margin-bottom:14px">
         <div class="bar-seg" title="Trained Tokens: ${tok.trained_total.toLocaleString()}" style="width:${trainedPctOfSampling.toFixed(2)}%;background:#0284c7"></div>
       </div>
-      <table>
+      <div style="overflow-x:auto"><table>
         <thead><tr><th>Category</th><th class="num">Tokens</th><th class="num">Share / Ratio</th><th>Notes</th></tr></thead>
         <tbody>
           <tr><td>Total Multi-Turn Prefill</td><td class="num">${tok.prefill_total.toLocaleString()}</td><td class="num">${tok.prefill_multiplier != null ? `${tok.prefill_multiplier.toFixed(2)}x unique` : "&mdash;"}</td><td class="muted">Sum of ob_len across every turn</td></tr>
@@ -1319,7 +1393,7 @@ pre.codebox {
           <tr><td>Trained Tokens</td><td class="num">${tok.trained_total.toLocaleString()}</td><td class="num">&mdash;</td><td class="muted">Sent to forward_backward (kept groups only; recount of kept rollouts)</td></tr>
           ${tok.estimated_cost_usd != null ? `<tr><td><strong>Estimated Cost</strong></td><td class="num"><strong>$${tok.estimated_cost_usd.toFixed(2)}</strong></td><td class="num">${tok.estimated_discarded_cost_usd != null ? `$${tok.estimated_discarded_cost_usd.toFixed(2)} discarded` : "&mdash;"}</td><td class="muted">${esc(tok.pricing_source || "")}</td></tr>` : ""}
         </tbody>
-      </table>
+      </table></div>
     `;
 
     // Tools KPIs + end states
@@ -1736,12 +1810,18 @@ pre.codebox {
         }));
       }
       paintGroups();
-      jumpToGroupStep = (stepNum) => {
+      jumpToGroupStep = (stepNum, groupIdx = null) => {
         if (run.groups_by_step[String(stepNum)]) {
           selStep = stepNum;
           statusFilter = "all";
+          if (groupIdx != null) {
+            openGroups.add(`${stepNum}:${groupIdx}`);
+          }
           paintGroups();
-          document.getElementById("groups")?.scrollIntoView({ behavior: "smooth" });
+          const targetRow = groupIdx != null
+            ? card.querySelector(`.grow[data-gk="${stepNum}:${groupIdx}"]`)
+            : null;
+          (targetRow || document.getElementById("groups"))?.scrollIntoView({ behavior: "smooth", block: "center" });
         }
       };
     }

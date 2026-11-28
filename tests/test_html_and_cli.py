@@ -352,3 +352,147 @@ def test_render_run_terminal_shows_log_summary_and_cache_label(tmp_path: Path):
         assert "Training Progress" in text
     else:
         pytest.fail("Expected Training Progress in terminal output")
+
+
+def test_cli_inspect_repeatable_eval_diffs(tmp_path: Path, capsys):
+    run_dir = make_synthetic_run(tmp_path / "multi_eval_run", num_steps=3)
+    base1, final1 = make_synthetic_eval_pair(tmp_path / "eval_heldout")
+    base2, final2 = make_synthetic_eval_pair(tmp_path / "eval_ood")
+    out_html = tmp_path / "multi.html"
+
+    rc = main(
+        [
+            "inspect",
+            str(run_dir),
+            "--eval-before",
+            str(base1),
+            "--eval-after",
+            str(final1),
+            "--base-label",
+            "Base Heldout",
+            "--final-label",
+            "Final Heldout",
+            "--eval-before",
+            str(base2),
+            "--eval-after",
+            str(final2),
+            "--base-label",
+            "Base OOD",
+            "--final-label",
+            "Final OOD",
+            "--out",
+            str(out_html),
+            "--json",
+        ]
+    )
+    assert rc == 0
+    assert out_html.is_file()
+    parsed = json.loads(capsys.readouterr().out)
+    assert parsed["eval_diff"]["base_label"] == "Base Heldout"
+    assert parsed["eval_diff"]["final_label"] == "Final Heldout"
+    assert len(parsed["extra_eval_diffs"]) == 1
+    assert parsed["extra_eval_diffs"][0]["base_label"] == "Base OOD"
+    assert parsed["extra_eval_diffs"][0]["final_label"] == "Final OOD"
+
+    html = out_html.read_text(encoding="utf-8")
+    assert "color-scheme: dark" in html
+    assert "minmax(min(100%" in html
+    payload = _extract_payload(html)
+    assert payload["eval_diff"]["base_label"] == "Base Heldout"
+    assert len(payload["extra_eval_diffs"]) == 1
+    assert payload["extra_eval_diffs"][0]["base_label"] == "Base OOD"
+    _assert_inline_js_valid(html)
+
+    # Mismatched --eval-before / --eval-after count must fail cleanly with exit 1
+    rc_bad = main(["inspect", str(run_dir), "--eval-before", str(base1), "--no-html"])
+    assert rc_bad == 1
+    assert "same number of times" in capsys.readouterr().err
+
+
+def test_cli_safe_overwrite_protection_and_force(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+):
+    monkeypatch.chdir(tmp_path)
+    run_a = make_synthetic_run(tmp_path / "run_a", num_steps=2)
+    run_b = make_synthetic_run(tmp_path / "run_b", num_steps=2)
+    base_p, final_p = make_synthetic_eval_pair(tmp_path / "evals")
+
+    cases = [
+        (["inspect", str(run_a), "--no-color"], run_a / "tinker_inspect.html"),
+        (["diff", str(base_p), str(final_p), "--no-color"], tmp_path / "tinker_eval_diff.html"),
+        (["compare", str(run_a), str(run_b), "--no-color"], tmp_path / "tinker_compare.html"),
+        (["series", str(base_p), str(final_p), "--no-color"], tmp_path / "tinker_series.html"),
+    ]
+    for argv, default_path in cases:
+        # 1. First write succeeds
+        assert main(argv) == 0
+        capsys.readouterr()
+        assert default_path.is_file()
+
+        # 2. Second write without --force refuses to overwrite existing default HTML
+        #    and exits BEFORE running analysis or printing stdout.
+        sentinel = "<!-- keep-existing -->"
+        default_path.write_text(sentinel, encoding="utf-8")
+        assert main(argv) == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "Refusing to overwrite" in captured.err
+        assert "--force" in captured.err
+        assert default_path.read_text(encoding="utf-8") == sentinel
+
+        # 2b. With --json as well, stdout must remain empty on overwrite refusal
+        assert main([*argv, "--json"]) == 1
+        captured_json = capsys.readouterr()
+        assert captured_json.out == ""
+        assert "Refusing to overwrite" in captured_json.err
+
+        # 3. With --force, overwrite succeeds
+        assert main([*argv, "--force"]) == 0
+        capsys.readouterr()
+        assert default_path.read_text(encoding="utf-8") != sentinel
+
+    # 4. Explicit --out overwrites an existing target without requiring --force
+    explicit = tmp_path / "explicit.html"
+    explicit.write_text("old", encoding="utf-8")
+    assert main(["diff", str(base_p), str(final_p), "--out", str(explicit), "--no-color"]) == 0
+    capsys.readouterr()
+    assert explicit.read_text(encoding="utf-8") != "old"
+
+
+def test_cli_eval_label_disambiguation_and_strict_count(tmp_path: Path, capsys):
+    from tinker_inspect.cli import _default_eval_labels
+
+    # Identical leaf filenames like 00000.jsonl.zst walk up to distinguishing parent dirs
+    p_a = tmp_path / "hosted_run_base" / "monitors" / "stream" / "00000.jsonl.zst"
+    p_b = tmp_path / "hosted_run_ckpt44" / "monitors" / "stream" / "00000.jsonl.zst"
+    assert _default_eval_labels([p_a, p_b]) == ["hosted_run_base", "hosted_run_ckpt44"]
+
+    # Unique stems strip both .zst and .jsonl cleanly
+    assert _default_eval_labels([tmp_path / "base_v1.jsonl.zst", tmp_path / "rl_v2.jsonl"]) == [
+        "base_v1",
+        "rl_v2",
+    ]
+
+    # Strict 0-or-N check for --base-label / --final-label with multiple eval pairs
+    run_dir = make_synthetic_run(tmp_path / "run_strict_labels", num_steps=2)
+    base1, final1 = make_synthetic_eval_pair(tmp_path / "eval_a")
+    base2, final2 = make_synthetic_eval_pair(tmp_path / "eval_b")
+    rc_mismatch = main(
+        [
+            "inspect",
+            str(run_dir),
+            "--eval-before",
+            str(base1),
+            "--eval-after",
+            str(final1),
+            "--eval-before",
+            str(base2),
+            "--eval-after",
+            str(final2),
+            "--final-label",
+            "Only One Label",
+            "--no-html",
+        ]
+    )
+    assert rc_mismatch == 1
+    assert "--final-label must be omitted or provided once per eval pair" in capsys.readouterr().err

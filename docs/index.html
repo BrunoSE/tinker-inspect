@@ -258,9 +258,47 @@ uvx --from git+https://github.com/BrunoSE/tinker-inspect tinker-inspect /path/to
 
     <h2>Live Interactive Demos</h2>
     <div class="grid">
+      <a class="card" href="series_aime2425_ladder.html">
+        <div class="card-top">
+          <span class="pill pass">v0.4 Series</span>
+          <span class="pill">AIME 24+25</span>
+        </div>
+        <h3>Zero-Shot AIME 2024+2025 Progression (59.2% &rarr; 80.8%)</h3>
+        <p>
+          60-problem (120-episode/arm) zero-shot AIME 2024+2025 benchmark across 5 free
+          <code>Inkling-2-Mini</code> checkpoints: Base CoT (59.2%), Base TIR (69.2%),
+          Step-32 CoT RL (71.7%), <strong>Step-16 TIR RL (80.8%, +21.7 pp)</strong>, and
+          Step-32 TIR RL (74.2%) with 42% fewer tokens and 1.75&times; faster inference.
+        </p>
+        <div class="stats">
+          <span class="stat">+21.7 pp [+10.8, +33.3]</span>
+          <span class="stat">-42% tokens</span>
+          <span class="stat">85% AIME24 / 77% AIME25</span>
+        </div>
+      </a>
+
+      <a class="card" href="demo_inkling2_polaris_tir_rl_ood18.html">
+        <div class="card-top">
+          <span class="pill pass">v0.4 Multi-Eval</span>
+          <span class="pill">3 Eval Tabs</span>
+        </div>
+        <h3>Inkling-2-Mini Multi-Turn Python TIR RL (3 Benchmarks)</h3>
+        <p>
+          Single <code>tinker-inspect</code> v0.4 report attaching <strong>3 paired eval tabs</strong>
+          (Zero-Shot AIME 24+25 <code>+11.7 pp</code>, OOD Polaris 1/8 <code>+15.6 pp</code>, and
+          Held-Out 2..4/8 <code>+10.9 pp</code>) alongside full RL telemetry, pre-filter reward,
+          and straggler wait analysis at $0.00 cost.
+        </p>
+        <div class="stats">
+          <span class="stat">AIME 69.2% &rarr; 80.8%</span>
+          <span class="stat">OOD 1/8 31.2% &rarr; 46.9%</span>
+          <span class="stat">3 eval tabs</span>
+        </div>
+      </a>
+
       <a class="card" href="series_polaris18_ladder.html">
         <div class="card-top">
-          <span class="pill pass">v0.2 Series</span>
+          <span class="pill pass">Series</span>
           <span class="pill">5-Point Ladder</span>
         </div>
         <h3>OOD Olympiad 1/8 Progression (25.0% &rarr; 46.9%)</h3>
@@ -273,25 +311,6 @@ uvx --from git+https://github.com/BrunoSE/tinker-inspect tinker-inspect /path/to
           <span class="stat">+21.9 pp [+11.5, +32.3]</span>
           <span class="stat">-38% tokens</span>
           <span class="stat">+12 flipped solved</span>
-        </div>
-      </a>
-
-      <a class="card" href="demo_inkling2_polaris_tir_rl_ood18.html">
-        <div class="card-top">
-          <span class="pill pass">Multi-Turn TIR RL</span>
-          <span class="pill">$0.00 Free</span>
-        </div>
-        <h3>Inkling-2-Mini Multi-Turn Python TIR RL &rarr; OOD 1/8</h3>
-        <p>
-          16 steps of multi-turn <code>run_python</code> tool-integrated RL on
-          <code>Inkling-2-Mini:peft:65536:free</code> jumps OOD Olympiad <code>1/8</code>
-          accuracy <strong>+15.6 pp</strong> over Base TIR (31.2% &rarr; 46.9%, +21.9 pp vs
-          text-only base) while cutting tokens <strong>34%</strong> and tool errors 36%.
-        </p>
-        <div class="stats">
-          <span class="stat">+15.6 pp [+6.2, +26.0]</span>
-          <span class="stat">-34% tokens</span>
-          <span class="stat">55% cached</span>
         </div>
       </a>
 

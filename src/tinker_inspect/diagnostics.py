@@ -1393,9 +1393,34 @@ def diff_evals(
                 f"{final_label}={sorted(f_vals_cfg)}."
             )
 
-    # Discover all shared metrics across paired tasks
+    # Warn if multiple distinct splits are pooled into one diff
     paired_base_eps = [ep for k in shared_keys for ep in base_by_task[k]]
     paired_final_eps = [ep for k in shared_keys for ep in final_by_task[k]]
+    split_counts = Counter(ep.split for ep in paired_base_eps if ep.split)
+    if len(split_counts) > 1:
+        split_desc = ", ".join(f"{s} (n={c})" for s, c in split_counts.most_common())
+        warnings.append(
+            f"Multiple splits pooled together ({len(split_counts)} splits): {split_desc}."
+        )
+    trunc_comp_b = sum(
+        1
+        for ep in paired_base_eps
+        if ep.end_state == "completed" and ep.metadata.get("is_truncated") is True
+    )
+    trunc_comp_f = sum(
+        1
+        for ep in paired_final_eps
+        if ep.end_state == "completed" and ep.metadata.get("is_truncated") is True
+    )
+    if trunc_comp_b > 0 or trunc_comp_f > 0:
+        warnings.append(
+            f"Completed episodes also flagged is_truncated=True: "
+            f"{trunc_comp_b}/{len(paired_base_eps)} {base_label}, "
+            f"{trunc_comp_f}/{len(paired_final_eps)} {final_label} "
+            "(counted as completed because stop_condition succeeded)."
+        )
+
+    # Discover all shared metrics across paired tasks
     base_metric_keys = {k for ep in paired_base_eps for k in _episode_metric_dict(ep)}
     final_metric_keys = {k for ep in paired_final_eps for k in _episode_metric_dict(ep)}
     shared_metrics = sorted(base_metric_keys & final_metric_keys)

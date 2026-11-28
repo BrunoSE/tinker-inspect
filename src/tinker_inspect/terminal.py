@@ -81,6 +81,7 @@ def render_run_terminal(
     diag: RunDiagnostics,
     *,
     eval_diff: EvalDiffSummary | None = None,
+    extra_eval_diffs: list[EvalDiffSummary] | None = None,
     color: bool = True,
 ) -> str:
     lines: list[str] = []
@@ -275,9 +276,14 @@ def render_run_terminal(
             f"retries/rate_limits={ls.retry_or_rate_limit_lines}"
         )
 
+    all_eval_diffs: list[EvalDiffSummary] = []
     if eval_diff is not None:
+        all_eval_diffs.append(eval_diff)
+    if extra_eval_diffs:
+        all_eval_diffs.extend(extra_eval_diffs)
+    for ed in all_eval_diffs:
         lines.append("")
-        lines.append(render_eval_diff_terminal(eval_diff, color=color))
+        lines.append(render_eval_diff_terminal(ed, color=color))
 
     if run.warnings:
         lines.append("")
@@ -524,10 +530,13 @@ def diagnostics_to_json(
     diag: RunDiagnostics,
     *,
     eval_diff: EvalDiffSummary | None = None,
+    extra_eval_diffs: list[EvalDiffSummary] | None = None,
 ) -> str:
     payload: dict[str, Any] = {"diagnostics": asdict(diag)}
     if eval_diff is not None:
         payload["eval_diff"] = eval_diff_to_dict(eval_diff)
+    if extra_eval_diffs:
+        payload["extra_eval_diffs"] = [eval_diff_to_dict(d) for d in extra_eval_diffs]
     return json.dumps(payload, indent=2)
 
 

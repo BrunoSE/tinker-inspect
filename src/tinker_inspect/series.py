@@ -211,6 +211,14 @@ def analyze_eval_series(
             f"(range {min_att}..{max_att} attempts/task)."
         )
 
+    # Warn when multiple splits are pooled in an arm
+    split_counts_0 = Counter(ep.split for k in common_keys for ep in grouped[0][k] if ep.split)
+    if len(split_counts_0) > 1:
+        s_desc = ", ".join(f"{s} (n={c})" for s, c in split_counts_0.most_common())
+        warnings.append(
+            f"Multiple splits pooled together ({len(split_counts_0)} splits): {s_desc}."
+        )
+
     # Check for config mismatches across arms on max_tokens / effort / max_turns
     for cfg_field in ("max_tokens", "effort", "max_turns"):
         arm_vals: list[tuple[str, set[Any]]] = []
@@ -519,6 +527,7 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
   <title>__TITLE__</title>
   <style>
     :root {
+      color-scheme: light;
       --bg: #f8fafc;
       --surface: #ffffff;
       --surface-2: #f1f5f9;
@@ -543,6 +552,7 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
       --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
     }
     [data-theme="dark"] {
+      color-scheme: dark;
       --bg: #0b0f19;
       --surface: #111827;
       --surface-2: #1e293b;
@@ -617,32 +627,35 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
     .wrap { max-width: 1260px; margin: 0 auto; padding: 18px 22px 56px; }
     .warn-banner {
       background: var(--warn-bg); border: 1px solid var(--warn-bd);
-      border-left: 3px solid var(--warn); border-radius: 8px;
+      border-left: 3px solid var(--warn); color: var(--text); border-radius: 8px;
       padding: 10px 14px; margin-bottom: 14px; font-size: 12.5px;
     }
+    .warn-banner strong { color: var(--warn); }
     .warn-banner ul { margin: 4px 0 0 18px; padding: 0; }
     .kpis {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 205px), 1fr));
       gap: 12px; margin-bottom: 18px;
     }
     .kpi {
       background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-      padding: 13px 15px; box-shadow: var(--shadow);
+      padding: 13px 15px; box-shadow: var(--shadow); min-width: 0;
     }
     .kpi-label {
       font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
       color: var(--muted); font-weight: 650;
     }
-    .kpi-val { font-size: 22px; font-weight: 700; margin-top: 4px; letter-spacing: -0.02em; }
+    .kpi-val {
+      font-size: clamp(18px, 2.2vw, 22px); font-weight: 700;
+      margin-top: 4px; letter-spacing: -0.02em;
+    }
     .kpi-sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
     .charts {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr));
       gap: 14px; margin-bottom: 18px;
     }
-    @media (max-width: 640px) { .charts { grid-template-columns: 1fr; } }
     .card {
       background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-      padding: 14px 16px; box-shadow: var(--shadow); margin-bottom: 18px;
+      padding: 14px 16px; box-shadow: var(--shadow); margin-bottom: 18px; min-width: 0;
     }
     .charts .card { margin-bottom: 0; }
     .card-head {
@@ -673,9 +686,13 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
       display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px;
     }
     .search {
-      flex: 1 1 220px; padding: 5px 9px; border-radius: 6px;
+      flex: 1 1 220px; min-width: 0; max-width: 100%; padding: 5px 9px; border-radius: 6px;
       border: 1px solid var(--border-strong); background: var(--surface);
       color: var(--text); font-size: 12.5px;
+    }
+    .search:focus {
+      outline: none; border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-soft);
     }
     .cell {
       display: inline-block; min-width: 44px; text-align: center; padding: 2px 5px;
@@ -684,20 +701,20 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
     .task-row { cursor: pointer; }
     .task-row:hover td { background: var(--surface-2); }
     .prompt-preview {
-      max-width: 420px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-      color: var(--text-muted); font-size: 12.5px;
+      max-width: min(420px, 55vw); white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis; color: var(--text-muted); font-size: 12.5px;
     }
     .expand-box {
       background: var(--surface-2); padding: 10px 12px; border-radius: 8px;
       font-size: 12.5px; margin: 2px 0;
     }
     .arm-grid {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
       gap: 8px; margin-top: 8px;
     }
     .arm-card {
       background: var(--surface); border: 1px solid var(--border);
-      border-radius: 7px; padding: 8px 10px;
+      border-radius: 7px; padding: 8px 10px; min-width: 0;
     }
     .arm-excerpt {
       margin-top: 5px; white-space: pre-wrap; word-break: break-word;
@@ -705,6 +722,18 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
       font-family: var(--mono);
     }
     .mono { font-family: var(--mono); font-size: 12px; }
+    @media (max-width: 768px) {
+      .topbar { flex-wrap: wrap; padding: 8px 12px; gap: 6px 10px; }
+      .brand { flex: 1 1 auto; overflow-x: auto; }
+      .brand-title { flex-shrink: 0; max-width: 68vw; }
+      .nav { flex: 1 1 100%; overflow-x: auto; padding-bottom: 2px; }
+      .wrap { padding: 14px 12px 48px; }
+      .card { padding: 12px; }
+      th, td { padding: 6px 7px; font-size: 12.5px; }
+    }
+    @media (max-width: 640px) {
+      .svg-box svg { min-width: 460px; }
+    }
   </style>
 </head>
 <body>
@@ -982,10 +1011,20 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
           var lo = yp(Math.max(yMin, loV));
           var hi = yp(Math.min(yMax, hiV));
           var bandCol = p === bestPt ? good : accent;
+          var whiskerOp = isDark() ? "0.78" : "0.55";
           svg1.push(
             '<line x1="' + cx.toFixed(1) + '" y1="' + lo.toFixed(1) +
             '" x2="' + cx.toFixed(1) + '" y2="' + hi.toFixed(1) +
-            '" stroke="' + bandCol + '" stroke-width="5" stroke-linecap="round" opacity="0.28"/>'
+            '" stroke="' + bandCol + '" stroke-width="2.6" stroke-linecap="round" opacity="' +
+            whiskerOp + '"/>'
+          );
+          svg1.push(
+            '<line x1="' + (cx - 5).toFixed(1) + '" y1="' + lo.toFixed(1) +
+            '" x2="' + (cx + 5).toFixed(1) + '" y2="' + lo.toFixed(1) +
+            '" stroke="' + bandCol + '" stroke-width="1.8" opacity="' + whiskerOp + '"/>' +
+            '<line x1="' + (cx - 5).toFixed(1) + '" y1="' + hi.toFixed(1) +
+            '" x2="' + (cx + 5).toFixed(1) + '" y2="' + hi.toFixed(1) +
+            '" stroke="' + bandCol + '" stroke-width="1.8" opacity="' + whiskerOp + '"/>'
           );
         });
 
@@ -999,12 +1038,13 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
           );
         }
 
+        var dotStroke = isDark() ? "#111827" : "#ffffff";
         pts.forEach(function (p, i) {
           var cx = xp(i), cy = yp(p.primary_mean);
           var dotCol = p === bestPt ? good : accent;
           svg1.push(
             '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) +
-            '" r="4.8" fill="' + dotCol + '" stroke="#ffffff" stroke-width="1.5"/>'
+            '" r="4.8" fill="' + dotCol + '" stroke="' + dotStroke + '" stroke-width="1.5"/>'
           );
           var lblAnchor = i === pts.length - 1 ? "end" : (i === 0 ? "start" : "middle");
           var lblDx = i === pts.length - 1 ? -8 : (i === 0 ? 8 : 0);
@@ -1098,7 +1138,9 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
             '" stroke-width="2" stroke-dasharray="5,3" opacity="0.8"/>'
           );
         }
-        var colors = ["#64748b", "#4f46e5", "#7c3aed", "#059669", "#d97706", "#db2777"];
+        var colors = isDark()
+          ? ["#94a3b8", "#818cf8", "#a78bfa", "#34d399", "#fbbf24", "#f472b6"]
+          : ["#64748b", "#4f46e5", "#7c3aed", "#059669", "#d97706", "#db2777"];
         var placedBoxes = [];
         function boxesOverlap(a, b) {
           return !(a.x2 < b.x1 || a.x1 > b.x2 || a.y2 < b.y1 || a.y1 > b.y2);
@@ -1127,7 +1169,7 @@ _SERIES_HTML_TEMPLATE = """<!DOCTYPE html>
           var col = colors[i % colors.length];
           svg2.push(
             '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) +
-            '" r="5" fill="' + col + '" stroke="#ffffff" stroke-width="1.5"/>'
+            '" r="5" fill="' + col + '" stroke="' + dotStroke + '" stroke-width="1.5"/>'
           );
           var tw = p.label.length * 6.2 + 6;
           var th = 14;

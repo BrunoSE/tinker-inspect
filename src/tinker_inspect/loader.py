@@ -6,6 +6,8 @@ import io
 import json
 import math
 import re
+import shutil
+import subprocess
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -82,12 +84,44 @@ def _open_jsonl_text(path: Path) -> io.TextIOBase:
     if _is_zstd_file(path):
         try:
             from compression import zstd  # type: ignore[import-not-found]
-        except ImportError as exc:
+        except ImportError:
+            zstd_bin = shutil.which("zstd")
+            if zstd_bin is None:
+                raise ValueError(
+                    f"Compressed .zst file cannot be read directly on Python <3.14 without "
+                    f"`zstd` on PATH ({path.name}); install zstd or decompress first "
+                    f"(e.g. `zstd -d {path.name}`)."
+                ) from None
+            try:
+                proc = subprocess.run(
+                    [zstd_bin, "-dc", "--", str(path)],
+                    capture_output=True,
+                    check=False,
+                    timeout=30,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise ValueError(
+                    f"Timed out after 30s decompressing .zst file ({path.name}); "
+                    f"decompress manually first (`zstd -d {path.name}`)."
+                ) from exc
+            if proc.returncode != 0:
+                err_msg = proc.stderr.decode("utf-8", errors="replace").strip()
+                detail = f" ({err_msg})" if err_msg else ""
+                raise ValueError(
+                    f"Compressed .zst file could not be decompressed with zstd "
+                    f"({path.name}){detail}."
+                ) from None
+            if len(proc.stdout) > 512 * 1024 * 1024:
+                raise ValueError(
+                    f"Decompressed .zst file exceeds 512 MiB safety limit ({path.name})."
+                ) from None
+            return io.StringIO(proc.stdout.decode("utf-8", errors="replace"))
+        try:
+            raw = zstd.decompress(path.read_bytes())
+        except Exception as exc:
             raise ValueError(
-                f"Compressed .zst file cannot be read directly on Python <3.14 ({path.name}); "
-                f"decompress first (e.g. `zstd -d {path.name}`)."
+                f"Compressed .zst file could not be decompressed ({path.name}): {exc}"
             ) from exc
-        raw = zstd.decompress(path.read_bytes())
         return io.StringIO(raw.decode("utf-8", errors="replace"))
     return path.open("r", encoding="utf-8", errors="replace")
 
@@ -563,7 +597,19 @@ def _load_timings(log_dir: Path, warnings: list[str]) -> dict[int, StepTiming]:
             ws = _to_float(s.get("wall_start")) or 0.0
             we = _to_float(s.get("wall_end")) or (ws + dur)
             max_wall_end = max(max_wall_end, we)
-            spans.append(SpanRecord(name=name, duration=dur, wall_start=ws, wall_end=we))
+            raw_attrs = s.get("attributes")
+            attrs = dict(raw_attrs) if isinstance(raw_attrs, dict) else {}
+            gidx = _to_int(attrs.get("group_idx", s.get("group_idx")))
+            spans.append(
+                SpanRecord(
+                    name=name,
+                    duration=dur,
+                    wall_start=ws,
+                    wall_end=we,
+                    group_idx=gidx,
+                    attributes=attrs,
+                )
+            )
             if name in ("do_group_rollout_and_filter_constant_reward", "do_group_rollout"):
                 rollout_durations.append(dur)
             elif name in ("sampling", "sample"):
@@ -851,6 +897,104 @@ def _extract_meta(src: dict[str, Any], metrics: dict[str, float]) -> dict[str, A
     }
 
 
+def _messages_from_nodes(raw_nodes: Any) -> list[EvalMessage]:
+    if not isinstance(raw_nodes, list):
+        return []
+    raw_msgs: list[dict[str, Any]] = []
+    for node in raw_nodes:
+        if not isinstance(node, dict):
+            continue
+        msg = node.get("message")
+        if isinstance(msg, dict):
+            raw_msgs.append(msg)
+        elif "role" in node:
+            raw_msgs.append(node)
+    return _parse_messages(raw_msgs)
+
+
+def _prime_task_data(row: dict[str, Any]) -> dict[str, Any]:
+    task_obj = row.get("task")
+    if isinstance(task_obj, dict) and isinstance(task_obj.get("data"), dict):
+        return task_obj["data"]
+    return {}
+
+
+def _build_trace_episode(
+    row: dict[str, Any],
+    trace: dict[str, Any],
+    *,
+    idx: int,
+    top_ok: bool,
+    top_errors: list[str],
+) -> EvalEpisode:
+    task_data = _prime_task_data(row)
+    raw_messages = trace.get("messages")
+    messages = _parse_messages(raw_messages) if isinstance(raw_messages, list) else []
+    if not messages and isinstance(trace.get("nodes"), list):
+        messages = _messages_from_nodes(trace.get("nodes"))
+
+    merged_prompt_src = {**task_data, **trace}
+    prompt = _prompt_from_trace(merged_prompt_src, messages)
+    task_id = trace.get("task_id")
+    if task_id is None:
+        task_id = task_data.get("id", task_data.get("idx"))
+    if task_id is None:
+        task_id = row.get("task_id")
+    task_key = f"task:{task_id}" if task_id is not None else (prompt or f"row:{idx}")
+
+    split_raw = row.get("split") if row.get("split") is not None else task_data.get("split")
+    split = str(split_raw) if split_raw is not None else None
+
+    metrics = _parse_turn_metrics(trace.get("metrics"))
+    reward = _extract_trace_reward(trace)
+    turns = _to_int(trace.get("sampled_turns"))
+    if turns is None:
+        turns = _to_int(trace.get("num_turns"))
+    if turns is None:
+        turns = sum(1 for m in messages if m.role == "assistant")
+
+    trace_errors = [str(e) for e in (trace.get("errors") or [])]
+    trace_ok = bool(trace.get("ok", True)) and not bool(trace.get("has_error", False))
+    meta_src: dict[str, Any] = {**task_data, **row, **trace}
+    raw_stop = trace.get("stop_reason") or trace.get("stop_condition")
+    if isinstance(raw_stop, str):
+        stop_norm = raw_stop.strip().lower()
+        if stop_norm in ("agent_completed", "done", "finished"):
+            meta_src["stop_reason"] = "completed"
+        elif stop_norm in ("max_turns", "max_turns_reached"):
+            meta_src["stop_reason"] = "max_turns"
+        elif stop_norm in ("timeout", "rollout_timeout", "timed_out"):
+            meta_src["stop_reason"] = "timeout"
+        elif stop_norm in ("max_tokens", "length", "token_limit", "prompt_too_long"):
+            meta_src["stop_reason"] = "length"
+        else:
+            meta_src["stop_reason"] = raw_stop
+    if _to_bool(trace.get("is_timeout")) is True:
+        meta_src["stop_reason"] = "timeout"
+    if _to_bool(trace.get("is_truncated")) is True and meta_src.get("stop_reason") is None:
+        meta_src.setdefault("truncated_thinking", True)
+        meta_src["stop_reason"] = "length"
+    if _to_bool(trace.get("is_format_violation")) is True and meta_src.get("parse_ok") is None:
+        meta_src["parse_ok"] = False
+    meta = _extract_meta(meta_src, metrics)
+    return EvalEpisode(
+        task_key=task_key,
+        task_id=task_id,
+        prompt=prompt,
+        split=split,
+        ok=top_ok and trace_ok and not trace_errors,
+        reward=reward,
+        metrics=metrics,
+        num_turns=turns,
+        input_tokens=_to_int(trace.get("num_input_tokens")),
+        output_tokens=_to_int(trace.get("num_output_tokens")),
+        final_answer_chars=_final_answer_chars(messages),
+        messages=messages,
+        errors=top_errors + trace_errors,
+        **meta,
+    )
+
+
 def load_eval_jsonl_with_warnings(path: str | Path) -> tuple[list[EvalEpisode], list[str]]:
     """Load eval rollouts and return ``(episodes, warnings)`` including skipped malformed lines."""
     p = Path(path).expanduser().resolve()
@@ -863,43 +1007,37 @@ def load_eval_jsonl_with_warnings(path: str | Path) -> tuple[list[EvalEpisode], 
     skipped_unknown = 0
 
     for idx, row in enumerate(rows):
-        # Format 1: verifiers v1 / tinker_eval.py episode JSONL with "traces"
+        # Format 1: verifiers v1 / tinker_eval.py / Prime hosted trace JSONL with "traces"
         if isinstance(row.get("traces"), list) and row["traces"]:
-            split = str(row["split"]) if row.get("split") is not None else None
             ok = bool(row.get("ok", True))
             top_errors = [str(e) for e in (row.get("errors") or [])]
             for trace in row["traces"]:
                 if not isinstance(trace, dict):
                     continue
-                messages = _parse_messages(trace.get("messages"))
-                prompt = _prompt_from_trace(trace, messages)
-                task_id = trace.get("task_id")
-                task_key = f"task:{task_id}" if task_id is not None else (prompt or f"row:{idx}")
-                metrics = _parse_turn_metrics(trace.get("metrics"))
-                reward = _extract_trace_reward(trace)
-                turns = _to_int(trace.get("sampled_turns"))
-                if turns is None:
-                    turns = sum(1 for m in messages if m.role == "assistant")
-                trace_errors = [str(e) for e in (trace.get("errors") or [])]
-                meta = _extract_meta({**row, **trace}, metrics)
                 episodes.append(
-                    EvalEpisode(
-                        task_key=task_key,
-                        task_id=task_id,
-                        prompt=prompt,
-                        split=split,
-                        ok=ok and not trace_errors,
-                        reward=reward,
-                        metrics=metrics,
-                        num_turns=turns,
-                        input_tokens=_to_int(trace.get("num_input_tokens")),
-                        output_tokens=_to_int(trace.get("num_output_tokens")),
-                        final_answer_chars=_final_answer_chars(messages),
-                        messages=messages,
-                        errors=top_errors + trace_errors,
-                        **meta,
+                    _build_trace_episode(
+                        row,
+                        trace,
+                        idx=idx,
+                        top_ok=ok,
+                        top_errors=top_errors,
                     )
                 )
+            continue
+
+        # Format 1b: direct Prime hosted single-trace row with top-level "nodes"
+        if isinstance(row.get("nodes"), list) and row["nodes"]:
+            ok = bool(row.get("ok", True))
+            top_errors = [str(e) for e in (row.get("errors") or [])]
+            episodes.append(
+                _build_trace_episode(
+                    row,
+                    row,
+                    idx=idx,
+                    top_ok=ok,
+                    top_errors=top_errors,
+                )
+            )
             continue
 
         # Format 2: rollout_summaries.jsonl

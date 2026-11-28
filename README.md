@@ -12,8 +12,9 @@ Browse the interactive showcase at **[brunose.github.io/tinker-inspect](https://
 
 | Demo | Local / Repo | What it reveals |
 |---|---|---|
+| [5-Arm Zero-Shot AIME 2024+2025 Progression (`series`)](https://brunose.github.io/tinker-inspect/series_aime2425_ladder.html) | [`docs/series_aime2425_ladder.html`](docs/series_aime2425_ladder.html) | Zero-shot transfer (`0` train overlap, `max_tokens=4096`): Base CoT (`59.2%`) → Base TIR (`69.2%`) → Step-32 CoT RL (`71.7%`) → **Step-16 TIR RL (`80.8%`, `+21.7 pp` `[+10.8, +33.3]`, `-42%` tokens, `85.0%` AIME 2024 / `76.7%` AIME 2025)** → Step-32 TIR RL (`74.2%`). |
 | [5-Point OOD Olympiad `1/8` Progression (`series`)](https://brunose.github.io/tinker-inspect/series_polaris18_ladder.html) | [`docs/series_polaris18_ladder.html`](docs/series_polaris18_ladder.html) | Full 48-task paired progression across Base CoT (`25.0%`) → Base TIR (`31.2%`) → Step-16 CoT RL (`34.4%`) → Step-32 CoT RL (`37.5%`) → **16-Step Multi-Turn TIR RL (`46.9%`, `+21.9 pp` `[+11.5, +32.3]`, `-38%` tokens)** with accuracy/Pareto charts & per-task heatmap. |
-| [Inkling-2-Mini Multi-Turn Python TIR RL → OOD `1/8`](https://brunose.github.io/tinker-inspect/demo_inkling2_polaris_tir_rl_ood18.html) | [`docs/demo_inkling2_polaris_tir_rl_ood18.html`](docs/demo_inkling2_polaris_tir_rl_ood18.html) | **+15.6 pp** multi-turn `run_python` TIR RL gain on OOD Olympiad `1/8` (`31.2% → 46.9%`, 95% CI `[+6.2, +26.0]`; `+21.9 pp` vs text-only base), `-34%` tokens, `-36%` tool errors, `55%` prefix-cacheable, Multi-Turn Tool & Cache diagnostics, exact KL0, `$0.00`. |
+| [Inkling-2-Mini Multi-Turn Python TIR RL → Multi-Eval Tabs (AIME + OOD `1/8` + Held-Out)](https://brunose.github.io/tinker-inspect/demo_inkling2_polaris_tir_rl_ood18.html) | [`docs/demo_inkling2_polaris_tir_rl_ood18.html`](docs/demo_inkling2_polaris_tir_rl_ood18.html) | Repeatable multi-eval tabs in one report: **AIME 24+25 (`69.2% → 80.8%`, `+11.7 pp`)**, **Polaris OOD `1/8` (`31.2% → 46.9%`, `+15.6 pp`)**, and **Held-Out `2..4/8` (`56.2% → 67.2%`, `+10.9 pp`)**, plus pre-filter reward (`0.527 → 0.703`), `1.86×` prefill (`55%` measured cache hits), exact KL0, `$0.00`. |
 | [Inkling-2-Mini Step-32 RL → OOD Olympiad `1/8`](https://brunose.github.io/tinker-inspect/demo_inkling2_polaris_rl_v3_step32_ood18.html) | [`docs/demo_inkling2_polaris_rl_v3_step32_ood18.html`](docs/demo_inkling2_polaris_rl_v3_step32_ood18.html) | **+12.5 pp** zero-shot OOD Olympiad `1/8` transfer (`25.0% → 37.5%`, 95% CI `[+2.1, +22.9]`, `13W/3R/32T`, `-9.8%` tokens) at exact KL0 (`0.000000`) and `$0.00`. |
 | [Inkling-2-Mini Competition Math RL (Run #2)](https://brunose.github.io/tinker-inspect/demo_inkling2_polaris_rl_v2.html) | [`docs/demo_inkling2_polaris_rl_v2.html`](docs/demo_inkling2_polaris_rl_v2.html) | **+10.9 pp** held-out Polaris gain (`56.2% → 67.2%`, 95% CI `[+2.3, +20.3]`) on `Inkling-2-Mini:peft:65536:free` with exact KL0 (`0.000000`) at `$0.00`. |
 | [Diagnostic-Driven Iteration (Run #1 vs Run #2)](https://brunose.github.io/tinker-inspect/compare_polaris_v1_vs_v2.html) | [`docs/compare_polaris_v1_vs_v2.html`](docs/compare_polaris_v1_vs_v2.html) | Side-by-side comparison showing how acting on `tinker-inspect`'s truncation alert cut `max_tokens` cutoffs `61.3% → 19.8%` and all-bad groups `109 → 25`. |
@@ -90,19 +91,23 @@ uvx --from git+https://github.com/BrunoSE/tinker-inspect tinker-inspect /path/to
 # Or from a local checkout
 uvx --from . tinker-inspect /path/to/tinker/log_dir
 
-# Attach before/after eval JSONLs and redact local paths for public sharing
+# Attach one or multiple before/after eval JSONL / .jsonl.zst pairs as tabs
 tinker-inspect /path/to/log_dir \
-  --eval-before base_heldout.jsonl \
-  --eval-after final_heldout.jsonl \
-  --sanitize-paths \
-  --out demo.html --open
+  --eval-before base_heldout.jsonl --eval-after final_heldout.jsonl \
+  --base-label "Base Held-Out" --final-label "Final Held-Out" \
+  --eval-before base_ood.jsonl --eval-after final_ood.jsonl \
+  --base-label "Base OOD" --final-label "Final OOD" \
+  --sanitize-paths --out demo.html --open
+
+# Default HTML outputs refuse silent overwrite; pass --force (or --out / --no-html)
+tinker-inspect /path/to/log_dir --force
 
 # Machine-readable JSON or CI health gate (exits 2 on FAIL)
 tinker-inspect /path/to/log_dir --json --no-html
 tinker-inspect /path/to/log_dir --strict --no-html
 
-# Standalone paired eval diff (with optional cluster bootstrap & CI regression gate)
-tinker-inspect diff base_heldout.jsonl final_heldout.jsonl \
+# Standalone paired eval diff (verifiers, git_tool_rl, Prime .jsonl.zst traces, vf-eval)
+tinker-inspect diff base_heldout.jsonl.zst final_heldout.jsonl.zst \
   --cluster-by family --fail-if-regression success --sanitize-paths --out diff.html
 
 # Overlay two Tinker RL training runs side-by-side (HTML or --json)
